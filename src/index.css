@@ -1,6 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+<<<<<<< HEAD
 
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
@@ -93,3 +94,5 @@ body {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+=======
+>>>>>>> c36052ae2e3d6cb3c505ba9df8d2febb6bd3d796

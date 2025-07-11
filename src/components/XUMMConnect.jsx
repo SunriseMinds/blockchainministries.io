@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 
 import React, { useEffect, useState } from 'react';
 import { Xumm } from 'xumm';
@@ -115,3 +116,43 @@ export default function XUMMConnect() {
     </Card>
   );
 }
+=======
+import React, { useEffect, useState } from 'react';
+
+const XUMMConnect = () => {
+  const [account, setAccount] = useState(null);
+
+  useEffect(() => {
+    const connectXumm = async () => {
+      const { xumm } = await import('xumm-sdk');
+      const Sdk = xumm.default;
+      const xummSdk = new Sdk(import.meta.env.VITE_XUMM_API_KEY);
+
+      const payload = await xummSdk.payload.create({
+        txjson: {
+          TransactionType: 'SignIn',
+        },
+      });
+
+      window.open(payload.next.always, '_blank');
+    };
+
+    if (!account) connectXumm();
+  }, [account]);
+
+  return (
+    <div className="text-center mt-8">
+      {account ? (
+        <div>
+          <p className="text-green-600">Connected XRPL Wallet:</p>
+          <p className="font-mono">{account}</p>
+        </div>
+      ) : (
+        <p>Connecting to XUMM...</p>
+      )}
+    </div>
+  );
+};
+
+export default XUMMConnect;
+>>>>>>> c36052ae2e3d6cb3c505ba9df8d2febb6bd3d796
