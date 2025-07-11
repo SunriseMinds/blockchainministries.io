@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --sacred-gold: #FFD700;
+  --divine-blue: #0B1426;
+  --celestial-blue: #1E3A8A;
+  --ethereal-purple: #4C1D95;
+  --radiant-gold: #F59E0B;
+  --mystic-silver: #E5E7EB;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, var(--divine-blue) 0%, var(--celestial-blue) 50%, var(--ethereal-purple) 100%);
+  color: white;
+  overflow-x: hidden;
+}
+
+.sacred-font {
+  font-family: 'Cinzel', serif;
+}
+
+.sacred-glow {
+  text-shadow: 0 0 20px var(--sacred-gold), 0 0 40px var(--sacred-gold);
+}
+
+.divine-border {
+  border: 2px solid;
+  border-image: linear-gradient(45deg, var(--sacred-gold), var(--radiant-gold)) 1;
+}
+
+.celestial-bg {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+}
+
+.sacred-pattern {
+  background-image: 
+    radial-gradient(circle at 25% 25%, rgba(255, 215, 0, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 75% 75%, rgba(245, 158, 11, 0.1) 0%, transparent 50%);
+}
+
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(50px);
+  transition: all 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.scroll-reveal.revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.geometric-pattern {
+  background-image: 
+    linear-gradient(30deg, transparent 40%, rgba(255, 215, 0, 0.1) 40%, rgba(255, 215, 0, 0.1) 60%, transparent 60%),
+    linear-gradient(-30deg, transparent 40%, rgba(245, 158, 11, 0.1) 40%, rgba(245, 158, 11, 0.1) 60%, transparent 60%);
+  background-size: 60px 60px;
+}
+
+@keyframes sacred-pulse {
+  0%, 100% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+.sacred-pulse {
+  animation: sacred-pulse 3s ease-in-out infinite;
+}
+
+@keyframes divine-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+.divine-float {
+  animation: divine-float 4s ease-in-out infinite;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, var(--sacred-gold) 0%, var(--radiant-gold) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

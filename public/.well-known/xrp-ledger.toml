@@ -1,0 +1,12 @@
+domain = "blockchainministries.io"
+
+[domain]
+url = "https://blockchainministries.io"
+name = "Blockchain Ministries"
+ticker = "EFT"
+issuer = "rhbwjNN6U6Zy6mzpsjWbnEg5RBy96TgiLw"
+version = "1.0.0"
+
+[services]
+asset_uri = "https://blockchainministries.io/metadata"
+logo_uri = "https://blockchainministries.io/images/eft-logo.png"
