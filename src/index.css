@@ -1,8 +1,3 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-<<<<<<< HEAD
-
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
@@ -42,6 +37,7 @@ body {
 
 .celestial-bg {
   background: linear-gradient(135deg, rgba(255, 215, 0, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 215, 0, 0.2);
 }
@@ -94,5 +90,11 @@ body {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
-=======
->>>>>>> c36052ae2e3d6cb3c505ba9df8d2febb6bd3d796
+
+
+
+
+
+
+
+
