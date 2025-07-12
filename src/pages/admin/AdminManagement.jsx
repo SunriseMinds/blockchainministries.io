@@ -20,12 +20,13 @@ import {
   Award,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
+import XUMMConnect from '@/components/XUMMConnect';
 import { mintMinisterNFT } from '@/lib/mintMinisterNFT';
 
 const AdminManagement = () => {
   const { toast } = useToast();
   const { user } = useAuth();
-  const minterAccount = user?.user_metadata?.wallet_address || '';
+  const [minterAccount, setMinterAccount] = useState(user?.user_metadata?.wallet_address || '');
   const [pendingOrdinations, setPendingOrdinations] = useState([]);
   const [pendingCredentials, setPendingCredentials] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -203,7 +204,7 @@ const AdminManagement = () => {
         <title>Admin Management | Blockchain Ministries</title>
         <meta name="description" content="Approve or reject pending ordinations and credentials." />
       </Helmet>
-      <div className="p-4 md:p-8">
+      <div className="p-4 md:p-8 space-y-6">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -212,6 +213,16 @@ const AdminManagement = () => {
           <h1 className="text-3xl font-bold text-yellow-300 sacred-font mb-2">Request Management</h1>
           <p className="text-blue-200 mb-6">Review and process pending requests from members.</p>
         </motion.div>
+
+        <div>
+          <h2 className="text-xl font-semibold text-yellow-300 mb-2">Connect Wallet</h2>
+          {!minterAccount ? (
+            <XUMMConnect onConnect={(address) => setMinterAccount(address)} />
+          ) : (
+            <p className="text-green-300">Connected: {minterAccount}</p>
+          )}
+        </div>
+
         <Tabs defaultValue="ordinations" className="w-full">
           <TabsList className="grid w-full grid-cols-2 bg-slate-900/50 border border-yellow-600/30">
             <TabsTrigger value="ordinations" className="text-blue-200 data-[state=active]:bg-slate-800 data-[state=active]:text-yellow-300">
@@ -222,11 +233,11 @@ const AdminManagement = () => {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="ordinations" className="mt-4">
-            {renderRequestList(pendingOrdinations, 'ordination')}
+            {renderRequestList(pendingOrdinations, 'ordination')} 
           </TabsContent>
           <TabsContent value="credentials" className="mt-4">
             {renderRequestList(pendingCredentials, 'credential')}
-          </TabsContent>
+          </TabsContent> 
         </Tabs>
       </div>
     </>
