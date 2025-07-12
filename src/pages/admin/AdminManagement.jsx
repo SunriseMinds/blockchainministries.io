@@ -233,12 +233,4 @@ const AdminManagement = () => {
   );
 };
 
-          <TabsContent value="credentials" className="mt-4">
-            {renderRequestList(pendingCredentials, 'credential')}
-          </TabsContent>
-        </Tabs>
-      </div>
-    </>
-  );
-};
-
+export default AdminManagement;
