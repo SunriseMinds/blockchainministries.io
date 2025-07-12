@@ -86,12 +86,77 @@ const Home = () => {
           Seal your place in the divine ledger. Receive your scroll. Ignite your purpose.
         </motion.p>
 
-        {/* Add XUMMConnect component here */}
         <div className="mt-12">
           <XUMMConnect />
         </div>
       </div>
+
+      {/* Mission Section */}
+      <motion.section
+        initial={{ x: -80, opacity: 0 }}
+        whileInView={{ x: 0, opacity: 1 }}
+        transition={{ duration: 0.7 }}
+        className="bg-indigo-50 py-12 px-6"
+      >
+        <h3 className="text-2xl font-semibold mb-4 text-indigo-900 text-center">
+          Our Mission
+        </h3>
+        <p className="max-w-3xl mx-auto text-center">
+          We provide spiritual tools and technology for ministers and members worldwide. Blockchain Ministries enables on-chain credentials, sacred token issuance, decentralized governance, and secure document verification — rooted in divine sovereignty.
+        </p>
+      </motion.section>
+
+      {/* Features / NFTs */}
+      <motion.section
+        initial={{ y: 80, opacity: 0 }}
+        whileInView={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.7 }}
+        className="py-12 px-6"
+      >
+        <h3 className="text-2xl font-semibold text-center text-indigo-900 mb-8">
+          Sacred NFTs & Digital Scrolls
+        </h3>
+        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+          {[
+            { title: "Minister NFT ID", desc: "Receive your blockchain-verified ministerial credential." },
+            { title: "SoulScrolls", desc: "Sacred digital documents timestamped and immutable." },
+            { title: "Voting Tokens", desc: "Participate in community decisions via DAO mechanisms." },
+          ].map((card, i) => (
+            <motion.div
+              key={i}
+              whileHover={{ scale: 1.05 }}
+              className="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition"
+            >
+              <h4 className="text-lg font-semibold mb-2 text-indigo-700">{card.title}</h4>
+              <p className="text-sm text-gray-600">{card.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+      </motion.section>
+
       <ScrollsCTA />
+
+      {/* Join CTA */}
+      <motion.section
+        whileInView={{ scale: [0.95, 1] }}
+        transition={{ duration: 0.5 }}
+        className="bg-indigo-600 py-16 text-white text-center"
+      >
+        <h3 className="text-3xl font-bold mb-4">Become a Blockchain Minister Today</h3>
+        <p className="mb-6 max-w-xl mx-auto">
+          Step into your divine digital authority. Mint your ministerial NFT and access sacred tools.
+        </p>
+        <a href="/signup">
+          <Button className="bg-white text-indigo-700 px-6 py-3 rounded-xl font-semibold shadow-md hover:bg-gray-100">
+            Sign Up
+          </Button>
+        </a>
+      </motion.section>
+
+      {/* Footer */}
+      <footer className="text-center py-6 text-sm text-gray-500 bg-white border-t mt-6">
+        © {new Date().getFullYear()} Blockchain Ministries. All rights reserved.
+      </footer>
     </>
   );
 };
