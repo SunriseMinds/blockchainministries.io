@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { Paperclip } from "lucide-react";
-import { supabase } from "@/lib/customSupabaseClient";
+import { supabase } from "@/lib/SupabaseClient";
 
 const ContactScrollForm = () => {
   const { toast } = useToast();
