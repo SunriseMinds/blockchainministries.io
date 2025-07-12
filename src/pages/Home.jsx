@@ -6,6 +6,7 @@ import { ArrowRight, BookOpen } from 'lucide-react';
 import SacredSymbolCarousel from '@/pages/Home/components/SacredSymbolCarousel';
 import { Link } from 'react-router-dom';
 import ScrollsCTA from '@/pages/Home/components/ScrollsCTA';
+import XUMMConnect from '../components/XUMMConnect';
 
 const Home = () => {
   return (
@@ -84,6 +85,11 @@ const Home = () => {
         >
           Seal your place in the divine ledger. Receive your scroll. Ignite your purpose.
         </motion.p>
+
+        {/* Add XUMMConnect component here */}
+        <div className="mt-12">
+          <XUMMConnect />
+        </div>
       </div>
       <ScrollsCTA />
     </>
