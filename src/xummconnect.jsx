@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Xumm } from 'xumm'
 
-const xumm = new Xumm('<YOUR_XUMM_API_KEY>')
+const xumm = new Xumm(import.meta.env.VITE_XUMM_API_KEY);
 
 export default function XUMMConnect() {
   const [user, setUser] = useState(null)
