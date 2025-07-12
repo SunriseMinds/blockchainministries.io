@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 import { Award, FileText, BadgeCheck, Gift } from 'lucide-react';
+import RecentUpdates from '@/components/dashboard/RecentUpdates';
 
 const DashboardHome = () => {
   const { user } = useAuth();
@@ -179,6 +180,7 @@ const DashboardHome = () => {
                   </>
                 )}
               />
+              <RecentUpdates />
             </motion.div>
         )}
       </div>
