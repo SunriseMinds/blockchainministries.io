@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { ArrowRight, Download, Link as LinkIcon, Shield, BookUser, Vote, FileTex
 import { Coins as HandCoins } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import TrustlineQRCode from '@/components/TrustlineQRCode';
+import XUMMConnect from '@/components/XUMMConnect';
 
 const SectionWrapper = ({ children, className = "" }) => (
   <motion.section
@@ -24,6 +25,7 @@ const SectionWrapper = ({ children, className = "" }) => (
 
 const Token = () => {
   const { toast } = useToast();
+  const [showConnect, setShowConnect] = useState(false);
   const issuerAddress = "rhbwjNN6U6Zy6mzpsjWbnEg5RBy96TgiLw";
   const donationAddress = "rhbwjNN6U6Zy6mzpsjWbnEg5RBy96TgiLw";
   const trustlineUrl = `https://xrpl.services?issuer=${issuerAddress}&currency=EFT&limit=100000000`;
@@ -100,12 +102,22 @@ const Token = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.9, type: "spring", stiffness: 100 }}
         >
-           <Button asChild size="lg" className="bg-gradient-to-r from-yellow-400 to-amber-600 text-blue-950 font-bold hover:from-yellow-300 hover:to-amber-500 transition-all duration-300 transform hover:scale-105 shadow-lg shadow-yellow-500/20">
-              <a href={trustlineUrl} target="_blank" rel="noopener noreferrer">
-                Set TrustLine / Donate EFT <LinkIcon className="ml-2 h-5 w-5" />
-              </a>
-            </Button>
-        </motion.div>
+           <div className="flex flex-col sm:flex-row gap-4 justify-center">
+             <Button asChild size="lg" className="bg-gradient-to-r from-yellow-400 to-amber-600 text-blue-950 font-bold hover:from-yellow-300 hover:to-amber-500 transition-all duration-300 transform hover:scale-105 shadow-lg shadow-yellow-500/20">
+                <a href={trustlineUrl} target="_blank" rel="noopener noreferrer">
+                  Set TrustLine / Donate EFT <LinkIcon className="ml-2 h-5 w-5" />
+                </a>
+             </Button>
+             <Button size="lg" variant="outline" className="border-yellow-400/50 text-yellow-300 hover:bg-yellow-400/10" onClick={() => setShowConnect(!showConnect)}>
+                Connect Wallet
+             </Button>
+           </div>
+       </motion.div>
+       {showConnect && (
+         <div className="mt-8">
+           <XUMMConnect />
+         </div>
+       )}
       </div>
 
       <SectionWrapper className="bg-blue-950/20">

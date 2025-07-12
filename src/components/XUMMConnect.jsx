@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Xumm } from 'xumm';
+import { supabase } from '@/lib/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, Zap } from 'lucide-react';
 import QRCode from 'qrcode.react';
 
-const xumm = new Xumm('69f2405e-177d-4f5b-999e-7225bee591f9');
+const xumm = new Xumm(import.meta.env.VITE_XUMM_API_KEY);
 
 export default function XUMMConnect() {
   const [user, setUser] = useState(null);
@@ -28,6 +29,13 @@ export default function XUMMConnect() {
           setUser(state.me);
           setIsConnected(true);
           setIsLoading(false);
+          try {
+            await supabase
+              .from('xumm_sessions')
+              .insert([{ uuid, wallet_address: state.me.account }]);
+          } catch (e) {
+            console.error('Supabase save error:', e);
+          }
         });
 
         xumm.on("rejected", () => {
