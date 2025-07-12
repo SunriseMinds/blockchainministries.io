@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
-import { supabase } from '@/lib/supabaseClient';
+import { useSupabase } from '@/hooks/useSupabase';
 import { Button } from '@/components/ui/button';
 import { LogOut, LayoutDashboard, Shield } from 'lucide-react';
 import { Toaster } from "@/components/ui/toaster";
@@ -14,12 +14,13 @@ const DashboardLayout = () => {
 
   useEffect(() => {
     if (user) {
-      const fetchProfile = async () => {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+const supabase = useSupabase();
+const fetchProfile = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
         if (data) {
           setProfile(data);
         }

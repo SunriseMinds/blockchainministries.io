@@ -3,7 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/SupabaseAuthContext';
 import { useSupabase } from '@/hooks/useSupabase';
 
-const AdminRoute = ({ children }) => {
+const ProtectedRoute = ({ children }) => {
   const { session, user, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -19,7 +19,7 @@ const { data, error } = await supabase
           .select('*')
           .eq('id', user.id)
           .single();
-        
+
         if (data) {
           setProfile(data);
         }
@@ -52,4 +52,4 @@ const { data, error } = await supabase
   return children;
 };
 
-export default AdminRoute;
+export default ProtectedRoute;

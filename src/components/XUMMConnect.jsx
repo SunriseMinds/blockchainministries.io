@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import XummSdk from 'xumm';
 import QRCode from 'qrcode.react';
-import { supabaseClient } from '../lib/supabaseClient';
+import { useSupabase } from '../hooks/useSupabase';
 
 const XUMMConnect = () => {
   const [xumm, setXumm] = useState(null);
@@ -68,7 +68,8 @@ const XUMMConnect = () => {
 
   const saveSessionToSupabase = async (account, uuid) => {
     try {
-      const { data, error } = await supabase.from('xumm_sessions').insert([
+const supabase = useSupabase();
+const { data, error } = await supabase.from('xumm_sessions').insert([
         {
           wallet_address: account,
           payload_uuid: uuid,

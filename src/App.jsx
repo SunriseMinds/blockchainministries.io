@@ -30,6 +30,7 @@ const UpdatePassword = lazy(() => import('@/pages/auth/UpdatePassword'));
 const DashboardHome = lazy(() => import('@/pages/dashboard/DashboardHome'));
 const AdminDashboard = lazy(() => import('@/pages/admin/AdminDashboard'));
 const AdminManagement = lazy(() => import('@/pages/admin/AdminManagement'));
+const UserProfile = lazy(() => import('@/pages/UserProfile'));
 
 function App() {
   return (
@@ -62,6 +63,11 @@ function App() {
         {/* Member Dashboard */}
         <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
           <Route index element={<DashboardHome />} />
+        </Route>
+
+        {/* User Profile */}
+        <Route path="/profile" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
+          <Route index element={<UserProfile />} />
         </Route>
 
         {/* Admin Dashboard */}
