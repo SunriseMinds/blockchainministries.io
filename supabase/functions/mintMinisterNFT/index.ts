@@ -1,67 +1,57 @@
+/// <reference lib="deno.ns" />
+/// <reference lib="deno.unstable" />
+// @ts-nocheck
 /**
  * Supabase Edge Function to mint an XLS-20 NFT credential on the XRP Ledger via XUMM API.
  * Triggered after admin approval of a minister profile.
- * 
+ *
  * Expected POST body JSON:
  * {
  *   "ministerName": string,
  *   "credentialId": string,
  *   "roleTitle": string,
  *   "issuedDate": string (ISO date),
- *   "supabaseUserId": string
+ *   "supabaseUserId": string,
+ *   "minterAccount": string (XRP Ledger address of issuer)
  * }
- * 
- * This function calls the XUMM API to create and submit an NFT mint transaction.
+ *
+ * Metadata is embedded as a data URI containing JSON:
+ * {
+ *   ministerName,
+ *   credentialId,
+ *   roleTitle,
+ *   issuedDate,
+ *   supabaseUserId
+ * }
  */
 
-// If running in Deno, ensure you have internet access and the URL is correct:
-// import { serve } from "https://deno.land/std@0.181.0/http/server.ts";
-import { createServer } from "http";
+// @ts-ignore: Deno standard library import
+import { serve } from "https://deno.land/std@0.181.0/http/server.ts";
 
-// If running in Node.js, comment out the above line and use the following instead:
-// import { createServer } from "http";
-// (You will also need to refactor the rest of the code to use Node.js HTTP server API)
-
-// Environment variable access compatible with both Deno and Node.js
-const XUMM_API_KEY =
-  typeof Deno !== "undefined" && typeof (Deno as any).env !== "undefined"
-    ? (Deno as any).env.get("XUMM_API_KEY") || ""
-    : process.env.XUMM_API_KEY || "";
-const XUMM_API_SECRET =
-  typeof Deno !== "undefined" && typeof (Deno as any).env !== "undefined"
-    ? (Deno as any).env.get("XUMM_API_SECRET") || ""
-    : process.env.XUMM_API_SECRET || "";
+const XUMM_API_KEY = Deno.env.get("XUMM_API_KEY") || "";
+const XUMM_API_SECRET = Deno.env.get("XUMM_API_SECRET") || "";
 const XUMM_API_BASE = "https://xumm.app/api/v1";
 
-async function createXummPayload(metadata: any) {
-  // Create a payload for minting XLS-20 NFT on XRP Ledger
-  // Reference: https://xumm.readme.io/reference/create-payload
-  const payload = {
-    txjson: {
-      TransactionType: "NFTokenMint",
-      Account: metadata.account, // The account minting the NFT (XUMM user wallet)
-      NFTokenTaxon: 0,
-      Flags: 8, // tfTransferable flag
-      URI: metadata.uri, // URI to metadata JSON (hex encoded)
-      // Additional fields as needed
-    },
-    options: {
-      submit: true,
-      expire: 3600,
-    },
-  };
-  return payload;
+/**
+ * Hex-encode a UTF-8 string for the NFT URI field.
+ */
+function toHex(str: string): string {
+  return Array.from(str)
+    .map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
+    .join("");
 }
 
-async function mintNFTOnXumm(minterAccount: string, metadataUri: string) {
-  // Create payload and submit to XUMM API
+/**
+ * Mint an NFT via XUMM API.
+ */
+async function mintNFTOnXumm(minterAccount: string, uriHex: string) {
   const payload = {
     txjson: {
       TransactionType: "NFTokenMint",
       Account: minterAccount,
       NFTokenTaxon: 0,
       Flags: 8, // tfTransferable
-      URI: toHex(metadataUri),
+      URI: uriHex,
     },
     options: {
       submit: true,
@@ -77,76 +67,72 @@ async function mintNFTOnXumm(minterAccount: string, metadataUri: string) {
       "X-API-Secret": XUMM_API_SECRET,
     },
     body: JSON.stringify(payload),
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`XUMM API error: ${errorText}`);
   }
 
-  const data = await response.json();
-  return data;
+  return response.json();
 }
 
-function toHex(str: string) {
-  return Array.from(str)
-    .map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
-    .join("");
-}
-createServer(async (req, res) => {
+serve(async (req) => {
   if (req.method !== "POST") {
-    res.writeHead(405, { "Content-Type": "text/plain" });
-    res.end("Method Not Allowed");
-    return;
+    return new Response(
+      JSON.stringify({ error: "Method Not Allowed" }),
+      { status: 405, headers: { "Content-Type": "application/json" } }
+    );
   }
 
   try {
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-    });
+    const body = await req.json();
+    const {
+      ministerName,
+      credentialId,
+      roleTitle,
+      issuedDate,
+      supabaseUserId,
+      minterAccount,
+    } = body;
 
-    req.on("end", async () => {
-      const parsedBody = JSON.parse(body);
+    if (
+      !ministerName ||
+      !credentialId ||
+      !roleTitle ||
+      !issuedDate ||
+      !supabaseUserId ||
+      !minterAccount
+    ) {
+      return new Response(
+        JSON.stringify({ error: "Missing required fields" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
-      const {
-        ministerName,
-        credentialId,
-        roleTitle,
-        issuedDate,
-        supabaseUserId,
-        minterAccount,
-      } = parsedBody;
+    // Build metadata and embed as data URI
+    const metadata = {
+      ministerName,
+      credentialId,
+      roleTitle,
+      issuedDate,
+      supabaseUserId,
+    };
+    const jsonString = JSON.stringify(metadata);
+    const dataUri = `data:application/json;utf8,${encodeURIComponent(jsonString)}`;
+    const uriHex = toHex(dataUri);
 
-      if (
-        !ministerName ||
-        !credentialId ||
-        !roleTitle ||
-        !issuedDate ||
-        !supabaseUserId ||
-        !minterAccount
-      ) {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Missing required fields" }));
-        return;
-      }
+    // Call XUMM to mint
+    const xummPayload = await mintNFTOnXumm(minterAccount, uriHex);
 
-      const metadataUri = `https://example.com/metadata/${credentialId}.json`;
-
-      try {
-        const xummResponse = await mintNFTOnXumm(minterAccount, metadataUri);
-
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true, xummPayload: xummResponse }));
-      } catch (error) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: error.message }));
-      }
-    });
-  } catch (error) {
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: error.message }));
+    return new Response(
+      JSON.stringify({ success: true, xummPayload }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({ error: err.message }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
   }
-}).listen(8000, () => {
-  console.log("Server running on http://localhost:8000");
-});
 });
