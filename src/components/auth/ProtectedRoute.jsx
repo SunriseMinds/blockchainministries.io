@@ -46,7 +46,7 @@ const { data, error } = await supabase
   }
 
   if (profile?.role !== 'admin') {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/user-profile" replace />;
   }
 
   return children;

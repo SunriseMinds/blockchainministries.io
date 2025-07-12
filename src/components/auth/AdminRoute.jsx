@@ -13,13 +13,13 @@ const AdminRoute = ({ children }) => {
     if (user) {
       const fetchProfile = async () => {
         setProfileLoading(true);
-const supabase = useSupabase();
-const { data, error } = await supabase
+        const supabase = useSupabase();
+        const { data, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
           .single();
-        
+
         if (data) {
           setProfile(data);
         }
@@ -46,7 +46,7 @@ const { data, error } = await supabase
   }
 
   if (profile?.role !== 'admin') {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/user-profile" replace />;
   }
 
   return children;

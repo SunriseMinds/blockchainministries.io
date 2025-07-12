@@ -14,10 +14,23 @@
  * This function calls the XUMM API to create and submit an NFT mint transaction.
  */
 
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+// If running in Deno, ensure you have internet access and the URL is correct:
+// import { serve } from "https://deno.land/std@0.181.0/http/server.ts";
+import { createServer } from "http";
 
-const XUMM_API_KEY = Deno.env.get("XUMM_API_KEY") || "";
-const XUMM_API_SECRET = Deno.env.get("XUMM_API_SECRET") || "";
+// If running in Node.js, comment out the above line and use the following instead:
+// import { createServer } from "http";
+// (You will also need to refactor the rest of the code to use Node.js HTTP server API)
+
+// Environment variable access compatible with both Deno and Node.js
+const XUMM_API_KEY =
+  typeof Deno !== "undefined" && typeof (Deno as any).env !== "undefined"
+    ? (Deno as any).env.get("XUMM_API_KEY") || ""
+    : process.env.XUMM_API_KEY || "";
+const XUMM_API_SECRET =
+  typeof Deno !== "undefined" && typeof (Deno as any).env !== "undefined"
+    ? (Deno as any).env.get("XUMM_API_SECRET") || ""
+    : process.env.XUMM_API_SECRET || "";
 const XUMM_API_BASE = "https://xumm.app/api/v1";
 
 async function createXummPayload(metadata: any) {
@@ -64,7 +77,6 @@ async function mintNFTOnXumm(minterAccount: string, metadataUri: string) {
       "X-API-Secret": XUMM_API_SECRET,
     },
     body: JSON.stringify(payload),
-  });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -80,54 +92,61 @@ function toHex(str: string) {
     .map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
     .join("");
 }
-
-serve(async (req) => {
+createServer(async (req, res) => {
   if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405 });
+    res.writeHead(405, { "Content-Type": "text/plain" });
+    res.end("Method Not Allowed");
+    return;
   }
 
   try {
-    const body = await req.json();
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
 
-    const {
-      ministerName,
-      credentialId,
-      roleTitle,
-      issuedDate,
-      supabaseUserId,
-      minterAccount,
-    } = body;
+    req.on("end", async () => {
+      const parsedBody = JSON.parse(body);
 
-    if (
-      !ministerName ||
-      !credentialId ||
-      !roleTitle ||
-      !issuedDate ||
-      !supabaseUserId ||
-      !minterAccount
-    ) {
-      return new Response(
-        JSON.stringify({ error: "Missing required fields" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-      );
-    }
+      const {
+        ministerName,
+        credentialId,
+        roleTitle,
+        issuedDate,
+        supabaseUserId,
+        minterAccount,
+      } = parsedBody;
 
-    // Construct metadata JSON URI or embed metadata as needed
-    // For simplicity, we assume metadataUri is a URL to metadata JSON hosted somewhere
-    // In production, you might upload metadata to IPFS or other storage and use that URI
-    const metadataUri = `https://example.com/metadata/${credentialId}.json`;
+      if (
+        !ministerName ||
+        !credentialId ||
+        !roleTitle ||
+        !issuedDate ||
+        !supabaseUserId ||
+        !minterAccount
+      ) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing required fields" }));
+        return;
+      }
 
-    // Call XUMM API to mint NFT
-    const xummResponse = await mintNFTOnXumm(minterAccount, metadataUri);
+      const metadataUri = `https://example.com/metadata/${credentialId}.json`;
 
-    return new Response(
-      JSON.stringify({ success: true, xummPayload: xummResponse }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+      try {
+        const xummResponse = await mintNFTOnXumm(minterAccount, metadataUri);
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true, xummPayload: xummResponse }));
+      } catch (error) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+    });
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: error.message }));
   }
+}).listen(8000, () => {
+  console.log("Server running on http://localhost:8000");
+});
 });
