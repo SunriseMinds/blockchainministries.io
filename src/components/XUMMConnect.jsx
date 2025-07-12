@@ -4,6 +4,8 @@ import QRCode from 'qrcode.react';
 import { useSupabase } from '../hooks/useSupabase';
 
 const XUMMConnect = () => {
+  const supabase = useSupabase();
+
   const [xumm, setXumm] = useState(null);
   const [payloadUuid, setPayloadUuid] = useState(null);
   const [walletAddress, setWalletAddress] = useState(null);
@@ -52,8 +54,8 @@ const XUMMConnect = () => {
         const account = resolved.response.account;
         setWalletAddress(account);
 
-        // Save session to Supabase
-        await saveSessionToSupabase(account, payload.uuid);
+        // Save session to Supabase and sign in user
+        await handleUserSignIn(account, payload.uuid);
 
         setConnecting(false);
       } else {
@@ -66,21 +68,49 @@ const XUMMConnect = () => {
     }
   };
 
-  const saveSessionToSupabase = async (account, uuid) => {
+  const handleUserSignIn = async (account, uuid) => {
     try {
-const supabase = useSupabase();
-const { data, error } = await supabase.from('xumm_sessions').insert([
+      // Save session to xumm_sessions table
+      const { error: sessionError } = await supabase.from('xumm_sessions').insert([
         {
           wallet_address: account,
           payload_uuid: uuid,
           connected_at: new Date().toISOString(),
         },
       ]);
-      if (error) {
-        console.error('Error saving session to Supabase:', error);
+      if (sessionError) {
+        console.error('Error saving session to Supabase:', sessionError);
+      }
+
+      // Check if user is already signed in
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        // Sign in anonymously if no session exists
+        const { data, error } = await supabase.auth.signInWithOtp({
+          email: `${account}@xumm.wallet`, // Using wallet address as email placeholder
+        });
+
+        if (error) {
+          console.error('Error signing in with OTP:', error);
+          setError('Authentication failed: ' + error.message);
+          return;
+        }
+      }
+
+      // Update user metadata with wallet address
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: { wallet_address: account },
+      });
+
+      if (updateError) {
+        console.error('Error updating user metadata:', updateError);
       }
     } catch (err) {
-      console.error('Exception saving session to Supabase:', err);
+      console.error('Exception in handleUserSignIn:', err);
+      setError('Authentication error: ' + err.message);
     }
   };
 
