@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { supabase } from '@/supabaseClient';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -19,14 +18,18 @@ const MinisterProfile = () => {
     const fetchMinister = async () => {
       try {
         setLoading(true);
-        const ministerDocRef = doc(db, 'ministers', ministerId);
-        const ministerDoc = await getDoc(ministerDocRef);
+        const { data, error } = await supabase
+  .from('ministers')
+  .select('*')
+  .eq('id', ministerId)
+  .single();
 
-        if (ministerDoc.exists()) {
-          setMinister({ id: ministerDoc.id, ...ministerDoc.data() });
-        } else {
-          setError('Minister not found in the sacred archives.');
-        }
+if (error || !data) {
+  setError('Minister not found in the sacred archives.');
+  console.error('Supabase error:', error);
+} else {
+  setMinister(data);
+}
       } catch (err) {
         console.error("Error fetching minister:", err);
         setError('An error occurred while seeking the minister.');
