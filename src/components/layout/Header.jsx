@@ -8,6 +8,7 @@ import {
   LogIn,
   LogOut,
   LayoutDashboard,
+  ArrowRight,
   Bell as NotificationIcon,
 } from 'lucide-react';
 import { useSupabase } from '@/hooks/useSupabase';
@@ -55,8 +56,8 @@ const Header = () => {
   };
 
   const navLinkStyle = ({ isActive }) => ({
-    color: isActive ? '#FBBF24' : '#BFDFE',
-    textShadow: isActive ? '0 0 5px rgba(251, 191, 36, 0.7)' : 'none',
+    color: isActive ? '#FFD700' : '#BFDFE',
+    textShadow: isActive ? '0 0 8px #FFD700' : 'none',
     position: 'relative',
   });
 
@@ -66,15 +67,16 @@ const Header = () => {
         initial={{ y: -100 }}
         animate={{ y: 0 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="bg-blue-950/50 backdrop-blur-lg text-white p-4 sticky top-0 z-50 border-b border-yellow-400/20"
+        className="bg-gradient-to-br from-[#0B1426] via-[#1E3A8A] to-[#4C1D95] text-white p-4 sticky top-0 z-50 border-b border-yellow-400/20 shadow-glow"
       >
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
           <Link to="/" className="flex items-center space-x-3 group">
             <svg
-              className="h-8 w-8 text-yellow-300"
+              className="h-8 w-8 text-[#FFD700] drop-shadow-glow"
               viewBox="0 0 100 100"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
+              aria-label="Gold Sacred Geometry Symbol"
             >
               <circle
                 cx="50"
@@ -86,15 +88,29 @@ const Header = () => {
               <path
                 d="M50 5 L95 50 L50 95 L5 50 Z"
                 fill="currentColor"
-                opacity="0.2"
+                opacity="0.3"
+              />
+              <circle
+                cx="50"
+                cy="50"
+                r="25"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                fill="none"
+              />
+              <path
+                d="M50 20 L80 50 L50 80 L20 50 Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                fill="none"
               />
             </svg>
-            <span className="font-bold text-xl text-yellow-300 group-hover:text-yellow-200 transition-colors">
+            <span className="font-serif font-bold text-xl text-[#FFD700] drop-shadow-glow group-hover:text-yellow-300 transition-colors">
               Blockchain Ministries
             </span>
           </Link>
 
-          <div className="hidden md:flex space-x-4 items-center font-light text-blue-200">
+          <div className="hidden md:flex space-x-6 items-center font-light font-serif text-[#FFD700]">
             <NavLink
               to="/"
               style={navLinkStyle}
@@ -140,7 +156,7 @@ const Header = () => {
 
             <div className="flex items-center gap-4 pl-4">
               <NotificationIcon
-                className="h-5 w-5 cursor-pointer text-blue-200 hover:text-yellow-300 transition-colors"
+                className="h-5 w-5 cursor-pointer text-[#FFD700] hover:text-yellow-300 drop-shadow-glow transition-colors"
                 onClick={() => setShowNotifications((v) => !v)}
               />
 
@@ -150,7 +166,7 @@ const Header = () => {
                     asChild
                     variant="outline"
                     size="sm"
-                    className="border-yellow-400/50 text-yellow-300 hover:bg-yellow-500/10"
+                    className="border-[#FFD700]/50 text-[#FFD700] hover:bg-yellow-500/10 drop-shadow-glow"
                   >
                     <Link to="/dashboard" className="flex items-center">
                       <LayoutDashboard className="mr-2 h-4 w-4" />
@@ -171,18 +187,34 @@ const Header = () => {
                 <>
                   <Link
                     to="/login"
-                    className="flex items-center text-blue-200 hover:text-yellow-300 transition-colors duration-300"
+                    className="flex items-center text-[#FFD700] hover:text-yellow-300 drop-shadow-glow transition-colors duration-300"
                   >
                     <LogIn className="mr-2 h-4 w-4" />
                     Login
                   </Link>
                   <Button
                     asChild
-                    variant="gradient"
+                    variant="outline"
                     size="sm"
-                    className="bg-gradient-to-r from-yellow-400 to-amber-500 text-blue-950 font-bold hover:from-yellow-500 hover:to-amber-600"
+                    className="text-[#FFD700] border-[#FFD700] hover:bg-yellow-500/20 drop-shadow-glow"
                   >
-                    <Link to="/join">Join</Link>
+                    <Link to="/login" className="flex items-center">
+                      Login <ArrowRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button
+                    asChild
+                    size="sm"
+                    className="bg-[#FFD700] text-blue-950 font-bold px-4 py-1 rounded-md drop-shadow-glow hover:brightness-110 transition-all"
+                  >
+                    <Link to="/join">Join Us</Link>
+                  </Button>
+                  <Button
+                    asChild
+                    size="sm"
+                    className="bg-gradient-to-r from-yellow-400 to-amber-500 text-blue-950 font-bold px-4 py-1 rounded-md drop-shadow-glow hover:brightness-110 transition-all"
+                  >
+                    <Link to="/donate">Donate</Link>
                   </Button>
                 </>
               )}
