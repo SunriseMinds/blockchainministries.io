@@ -68,7 +68,7 @@ const Header = () => {
         transition={{ duration: 0.5, ease: 'easeOut' }}
         className="bg-blue-950/50 backdrop-blur-lg text-white p-4 sticky top-0 z-50 border-b border-yellow-400/20"
       >
-        <nav className="container mx-auto flex justify-between items-center">
+        <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
           <Link to="/" className="flex items-center space-x-3 group">
             <svg
               className="h-8 w-8 text-yellow-300"

@@ -37,7 +37,7 @@ const fetchProfile = async () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-950 via-[#0A192F] to-black font-sans text-white">
       <header className="bg-blue-950/50 backdrop-blur-lg p-4 sticky top-0 z-50 border-b border-yellow-400/20">
-        <div className="container mx-auto flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
           <Link to="/dashboard" className="flex items-center space-x-3 group">
             <LayoutDashboard className="w-8 h-8 text-yellow-400 group-hover:text-yellow-300 transition-colors" />
             <span className="font-bold text-xl text-yellow-300 group-hover:text-yellow-200 transition-colors">
@@ -66,7 +66,7 @@ const fetchProfile = async () => {
           </div>
         </div>
       </header>
-      <main className="container mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Outlet />
       </main>
       <Toaster />

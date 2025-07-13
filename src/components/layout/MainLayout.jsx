@@ -14,7 +14,7 @@ const MainLayout = () => {
       <Header />
       <main>
         {showBreadcrumbs && <Breadcrumbs />}
-        <div className="container mx-auto px-4 py-8">
+        <div className="container py-8">
           <Outlet />
         </div>
       </main>

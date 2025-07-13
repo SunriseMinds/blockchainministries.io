@@ -16,7 +16,7 @@ const Breadcrumbs = () => {
   }
 
   return (
-    <nav aria-label="breadcrumb" className="container mx-auto px-4 pt-4 -mb-4">
+    <nav aria-label="breadcrumb" className="container pt-4 -mb-4">
       <ol className="flex items-center space-x-2 text-sm text-blue-300">
         <li>
           <Link to="/" className="flex items-center gap-2 hover:text-yellow-300 transition-colors">
