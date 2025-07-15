@@ -61,6 +61,8 @@ const Header = () => {
     position: 'relative',
   });
 
+  const [menuOpen, setMenuOpen] = React.useState(false);
+
   return (
     <>
       <motion.header
@@ -110,11 +112,33 @@ const Header = () => {
             </span>
           </Link>
 
-          <div className="hidden md:flex space-x-6 items-center font-light font-serif text-[#FFD700]">
+          {/* Menu Toggle Button for Mobile */}
+          <div
+            id="menu-toggle"
+            className="menu-toggle md:hidden cursor-pointer text-2xl text-[#FFD700]"
+            aria-label="Toggle menu"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                setMenuOpen(!menuOpen);
+              }
+            }}
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            ☰
+          </div>
+
+          {/* Nav List */}
+          <ul
+            id="nav-list"
+            className={`navbar ${menuOpen ? 'show' : ''} md:flex space-x-6 items-center font-light font-serif text-[#FFD700]`}
+          >
             <NavLink
               to="/"
               style={navLinkStyle}
               className="hover:text-yellow-300 transition-colors duration-300 px-2"
+              onClick={() => setMenuOpen(false)}
             >
               Home
             </NavLink>
@@ -122,6 +146,7 @@ const Header = () => {
               to="/about"
               style={navLinkStyle}
               className="hover:text-yellow-300 transition-colors duration-300 px-2"
+              onClick={() => setMenuOpen(false)}
             >
               About
             </NavLink>
@@ -129,6 +154,7 @@ const Header = () => {
               to="/ministries"
               style={navLinkStyle}
               className="hover:text-yellow-300 transition-colors duration-300 px-2"
+              onClick={() => setMenuOpen(false)}
             >
               Ministries
             </NavLink>
@@ -136,6 +162,7 @@ const Header = () => {
               to="/scrolls"
               style={navLinkStyle}
               className="hover:text-yellow-300 transition-colors duration-300 px-2"
+              onClick={() => setMenuOpen(false)}
             >
               Scrolls
             </NavLink>
@@ -143,6 +170,7 @@ const Header = () => {
               to="/token"
               style={navLinkStyle}
               className="hover:text-yellow-300 transition-colors duration-300 px-2"
+              onClick={() => setMenuOpen(false)}
             >
               Token
             </NavLink>
@@ -150,6 +178,7 @@ const Header = () => {
               to="/contact"
               style={navLinkStyle}
               className="hover:text-yellow-300 transition-colors duration-300 px-2"
+              onClick={() => setMenuOpen(false)}
             >
               Contact
             </NavLink>
@@ -219,7 +248,7 @@ const Header = () => {
                 </>
               )}
             </div>
-          </div>
+          </ul>
         </nav>
       </motion.header>
 

@@ -1,4 +1,61 @@
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+/* Base navbar */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background: #0A0F2C;
+  color: white;
+}
+
+/* Hide toggle button on desktop */
+.menu-toggle {
+  display: none;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+/* Nav list (default desktop) */
+.navbar ul {
+  display: flex;
+  gap: 20px;
+  list-style: none;
+}
+
+.navbar a {
+  text-decoration: none;
+  color: white;
+  transition: color 0.3s ease;
+}
+
+.navbar a:hover {
+  color: #FFD700;
+}
+
+/* ✅ MOBILE RESPONSIVE STYLES */
+@media (max-width: 768px) {
+  .menu-toggle {
+    display: flex; /* Show toggle on mobile */
+  }
+
+  .navbar ul {
+    position: absolute;
+    top: 64px;
+    left: 0;
+    right: 0;
+    background: #111;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 10px 20px;
+    display: none; /* Hide by default */
+  }
+
+  /* When toggled */
+  .navbar ul.show {
+    display: flex;
+  }
+}
 
 :root {
   --sacred-gold: #FFD700;
@@ -90,11 +147,3 @@ body {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
-
-
-
-
-
-
-
-
