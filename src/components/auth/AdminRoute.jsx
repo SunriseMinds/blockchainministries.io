@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
-import { useSupabase } from '@/hooks/useSupabase';
+import { useAuth } from '@/contexts/AuthProvider';
+import { supabase } from '@/lib/customSupabaseClient';
 
 const AdminRoute = ({ children }) => {
   const { session, user, loading: authLoading } = useAuth();
@@ -13,13 +13,12 @@ const AdminRoute = ({ children }) => {
     if (user) {
       const fetchProfile = async () => {
         setProfileLoading(true);
-        const supabase = useSupabase();
         const { data, error } = await supabase
           .from('profiles')
-          .select('*')
+          .select('role')
           .eq('id', user.id)
           .single();
-
+        
         if (data) {
           setProfile(data);
         }
@@ -46,7 +45,7 @@ const AdminRoute = ({ children }) => {
   }
 
   if (profile?.role !== 'admin') {
-    return <Navigate to="/user-profile" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 
 export const AuthContext = createContext();
@@ -12,6 +12,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = useCallback(async (userId) => {
+    if (!userId) return null;
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -30,9 +31,10 @@ export const AuthProvider = ({ children }) => {
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        const userProfile = await fetchProfile(session.user.id);
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (currentUser) {
+        const userProfile = await fetchProfile(currentUser.id);
         setProfile(userProfile);
       }
       setLoading(false);
@@ -43,9 +45,10 @@ export const AuthProvider = ({ children }) => {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          const userProfile = await fetchProfile(session.user.id);
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
+        if (currentUser) {
+          const userProfile = await fetchProfile(currentUser.id);
           setProfile(userProfile);
         } else {
           setProfile(null);
@@ -67,7 +70,7 @@ export const AuthProvider = ({ children }) => {
     signIn: (data) => supabase.auth.signInWithPassword(data),
     signUp: (data) => supabase.auth.signUp(data),
     signOut: () => supabase.auth.signOut(),
-    sendPasswordResetEmail: (email) => supabase.auth.resetPasswordForEmail(email, {
+    resetPasswordForEmail: (email) => supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/update-password`,
     }),
     updatePassword: (newPassword) => supabase.auth.updateUser({ password: newPassword }),

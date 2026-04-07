@@ -1,43 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { UserPlus, FileSignature, ClipboardList, Users, Award, Download, Blocks, Quote } from 'lucide-react';
+import { UserPlus, CheckCircle, Star, BookOpen, Vote, Mail, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/components/ui/use-toast';
+import { supabase } from '@/lib/customSupabaseClient';
+import { loadStripe } from '@stripe/stripe-js';
 
-const steps = [
-  {
-    icon: <FileSignature className="w-8 h-8 text-yellow-400" />,
-    title: "Covenant",
-    description: "Sign the Sacred Membership Covenant.",
-  },
-  {
-    icon: <ClipboardList className="w-8 h-8 text-yellow-400" />,
-    title: "Application",
-    description: "Complete the online form with spiritual intent.",
-  },
-  {
-    icon: <Users className="w-8 h-8 text-yellow-400" />,
-    title: "Verification",
-    description: "Your identity and alignment are reviewed by the Elders' Circle.",
-  },
-  {
-    icon: <Award className="w-8 h-8 text-yellow-400" />,
-    title: "Welcome",
-    description: "Receive your digital scroll, EFT token access, and minister ID.",
-  },
-];
-
-const testimonials = [
-    {
-        quote: "Becoming a member of Blockchain Ministries changed the way I walk in my calling — I now operate under divine covering and digital sovereignty.",
-        author: "Elder Minister J. Benjamin"
-    },
-    {
-        quote: "The Scroll of Protection reminded me who I truly am. This isn’t just a website, it’s a movement of light.",
-        author: "Sister Amira Z."
-    }
-];
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -53,13 +26,95 @@ const itemVariants = {
 };
 
 const Join = () => {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+  });
+  const [membershipType, setMembershipType] = useState('paid');
+  const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleInputChange = (e) => {
+    const { id, value } = e.target;
+    setFormData(prev => ({ ...prev, [id]: value }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('join-membership', {
+        body: {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
+          password: formData.password,
+          membershipType: membershipType,
+        },
+      });
+
+      if (error) throw new Error(error.message);
+      
+      if (membershipType === 'paid' && data.sessionId) {
+        toast({
+          title: 'Redirecting to Payment...',
+          description: 'Please complete your payment to activate your membership.',
+        });
+        const stripe = await stripePromise;
+        await stripe.redirectToCheckout({ sessionId: data.sessionId });
+      } else {
+        setSubmitted(true);
+        toast({
+          title: 'Welcome!',
+          description: 'Thank you for joining! Please check your email to confirm your account.',
+          className: 'bg-green-800 text-white',
+        });
+      }
+
+    } catch (err) {
+      const errorMessage = err.message.includes('User already registered')
+        ? 'A user with this email already exists. Please log in.'
+        : err.message || 'An unexpected error occurred.';
+      
+      toast({
+        title: 'Sign-up Failed',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center p-8"
+        >
+          <CheckCircle className="w-24 h-24 mx-auto text-green-400 mb-6" />
+          <h1 className="text-4xl font-bold text-yellow-300 sacred-font mb-4">Welcome to the Covenant!</h1>
+          <p className="text-blue-200 max-w-md mx-auto">
+            A confirmation email has been sent to your address. Please click the link inside to verify your account and begin your journey.
+          </p>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <>
       <Helmet>
-        <title>Become a Covenant Member - Blockchain Ministries</title>
-        <meta name="description" content="Join the covenant of Blockchain Ministries. Step into sacred protection and sovereign purpose as a member of a living scroll." />
+        <title>Join the Covenant - Blockchain Ministries</title>
+        <meta name="description" content="Become a member of Blockchain Ministries. Choose between a free or paid membership to unlock sacred knowledge and community benefits." />
       </Helmet>
-      <div className="min-h-screen bg-gradient-to-b from-blue-950 via-black to-blue-950 text-yellow-100 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="py-12 px-4 sm:px-6 lg:px-8">
         
         <motion.section
           initial={{ opacity: 0, y: -50 }}
@@ -71,10 +126,10 @@ const Join = () => {
             <UserPlus className="w-16 h-16 text-yellow-400" style={{ filter: 'drop-shadow(0 0 10px rgba(253, 224, 71, 0.7))' }} />
           </div>
           <h1 className="text-5xl md:text-7xl font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-yellow-400 to-amber-500 mb-4 sacred-font" style={{ textShadow: '0 0 20px rgba(253, 224, 71, 0.4)' }}>
-            Become a Covenant Member of Blockchain Ministries
+            Join the Sacred Covenant
           </h1>
           <p className="text-xl text-blue-200 italic max-w-3xl mx-auto">
-            Step into sacred protection and sovereign purpose. As a member of Blockchain Ministries, you are joined to a living scroll — protected under divine trust, ministerial law, and spiritual alignment.
+            Step into a community of light. Your membership supports our mission to protect sacred knowledge and build a sovereign digital ministry.
           </p>
         </motion.section>
 
@@ -83,76 +138,99 @@ const Join = () => {
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true, amount: 0.2 }}
-          className="max-w-7xl mx-auto mb-24"
+          className="max-w-6xl mx-auto mb-24"
         >
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                {steps.map((step, index) => (
-                    <motion.div variants={itemVariants} key={index}>
-                        <Card className="h-full text-center bg-black/30 border-yellow-400/20 text-white celestial-bg p-6 flex flex-col items-center justify-start hover:border-yellow-400/50 transition-all duration-300 hover:shadow-xl hover:shadow-yellow-500/10">
-                            <div className="mb-4 flex items-center justify-center w-16 h-16 rounded-full bg-yellow-500/10 border border-yellow-500/30">
-                                {step.icon}
-                            </div>
-                            <p className="text-sm font-bold text-yellow-500 tracking-widest uppercase">STEP {index + 1}</p>
-                            <h3 className="text-2xl font-bold text-yellow-300 sacred-font mt-2 mb-2">{step.title}</h3>
-                            <p className="text-blue-300 text-sm">{step.description}</p>
-                        </Card>
-                    </motion.div>
-                ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-start">
+            {/* Membership Tiers */}
+            <div className="space-y-8">
+              <h2 className="text-4xl font-bold text-center sacred-font gradient-text mb-8">Membership Options</h2>
+              {/* Free Tier */}
+              <motion.div variants={itemVariants}>
+                <Card className={`celestial-bg border-yellow-400/20 transition-all duration-300 ${membershipType === 'free' ? 'border-2 border-yellow-400 shadow-lg shadow-yellow-400/20' : ''}`}>
+                  <CardHeader>
+                    <CardTitle className="text-2xl sacred-font text-yellow-300">Supporter</CardTitle>
+                    <CardDescription className="text-blue-300">
+                      <span className="text-4xl font-bold text-white">Free</span>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-3">
+                      <li className="flex items-center"><Mail className="w-5 h-5 text-green-500 mr-3" /><span>Monthly newsletter and updates</span></li>
+                      <li className="flex items-center"><CheckCircle className="w-5 h-5 text-green-500 mr-3" /><span>Limited access to community events</span></li>
+                    </ul>
+                  </CardContent>
+                  <CardFooter>
+                    <Button onClick={() => setMembershipType('free')} className={`w-full ${membershipType === 'free' ? 'bg-yellow-500 text-black' : 'bg-blue-800'}`}>
+                      {membershipType === 'free' ? 'Selected' : 'Select'}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              </motion.div>
+              {/* Paid Tier */}
+              <motion.div variants={itemVariants}>
+                <Card className={`celestial-bg border-yellow-400/20 transition-all duration-300 ${membershipType === 'paid' ? 'border-2 border-yellow-400 shadow-lg shadow-yellow-400/20' : ''}`}>
+                  <CardHeader>
+                    <CardTitle className="text-2xl sacred-font text-yellow-300">Covenant Member</CardTitle>
+                    <CardDescription className="text-blue-300">
+                      <span className="text-4xl font-bold text-white">$10</span> / month
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-3">
+                      <li className="flex items-center"><BookOpen className="w-5 h-5 text-green-500 mr-3" /><span>Full access to all Sacred Scrolls</span></li>
+                      <li className="flex items-center"><Star className="w-5 h-5 text-green-500 mr-3" /><span>Monthly EFT token rewards</span></li>
+                      <li className="flex items-center"><Vote className="w-5 h-5 text-green-500 mr-3" /><span>Participation in DAO governance</span></li>
+                    </ul>
+                  </CardContent>
+                  <CardFooter>
+                    <Button onClick={() => setMembershipType('paid')} className={`w-full ${membershipType === 'paid' ? 'bg-yellow-500 text-black' : 'bg-blue-800'}`}>
+                      {membershipType === 'paid' ? 'Selected' : 'Select'}
+                    </Button>
+                  </CardFooter>
+                </Card>
+              </motion.div>
             </div>
-        </motion.section>
 
-        <motion.section
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true, amount: 0.2 }}
-          className="max-w-5xl mx-auto mb-24"
-        >
-            <h2 className="text-4xl md:text-5xl font-bold text-center mb-12 sacred-font gradient-text">From Our Members</h2>
-            <motion.div 
-                variants={containerVariants}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true, amount: 0.2 }}
-                className="grid grid-cols-1 md:grid-cols-2 gap-8"
-            >
-                {testimonials.map((testimonial, index) => (
-                    <motion.div variants={itemVariants} key={index}>
-                        <Card className="h-full bg-black/30 border-yellow-400/20 text-white celestial-bg p-8 relative">
-                            <Quote className="absolute top-4 left-4 w-12 h-12 text-yellow-500/10" />
-                            <CardContent className="p-0 relative z-10">
-                                <p className="text-lg italic text-blue-200 mb-6">"{testimonial.quote}"</p>
-                                <p className="text-right font-bold text-yellow-400 sacred-font">— {testimonial.author}</p>
-                            </CardContent>
-                        </Card>
-                    </motion.div>
-                ))}
+            {/* Sign-up Form */}
+            <motion.div variants={itemVariants}>
+              <Card className="celestial-bg border-yellow-400/20">
+                <CardHeader>
+                  <CardTitle className="text-3xl text-center sacred-font text-yellow-300">Create Your Account</CardTitle>
+                  <CardDescription className="text-center text-blue-300">Begin your journey with us today.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="firstName" className="text-yellow-300">First Name</Label>
+                        <Input id="firstName" type="text" value={formData.firstName} onChange={handleInputChange} required className="bg-blue-900/50 border-yellow-400/30 text-white" />
+                      </div>
+                      <div>
+                        <Label htmlFor="lastName" className="text-yellow-300">Last Name</Label>
+                        <Input id="lastName" type="text" value={formData.lastName} onChange={handleInputChange} required className="bg-blue-900/50 border-yellow-400/30 text-white" />
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="email" className="text-yellow-300">Email</Label>
+                      <Input id="email" type="email" value={formData.email} onChange={handleInputChange} required className="bg-blue-900/50 border-yellow-400/30 text-white" />
+                    </div>
+                    <div>
+                      <Label htmlFor="password" className="text-yellow-300">Password</Label>
+                      <Input id="password" type="password" value={formData.password} onChange={handleInputChange} required minLength="6" className="bg-blue-900/50 border-yellow-400/30 text-white" />
+                    </div>
+                    <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-500 hover:to-amber-600 text-blue-950 font-bold text-lg py-6 mt-4">
+                      {loading ? <Loader2 className="animate-spin mr-2" /> : <UserPlus className="mr-2" />}
+                      Join Now
+                    </Button>
+                    <p className="text-xs text-blue-400 text-center pt-2">
+                      By joining, you agree to our sacred covenant and privacy policy. Your information is protected under our Private Member Association.
+                    </p>
+                  </form>
+                </CardContent>
+              </Card>
             </motion.div>
-        </motion.section>
-
-        <motion.section
-          variants={itemVariants}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, amount: 0.5 }}
-          className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto"
-        >
-          <div className="celestial-bg p-8 rounded-2xl text-center flex flex-col items-center justify-center border border-yellow-400/20">
-            <h3 className="text-3xl font-bold text-yellow-300 sacred-font mb-4">Membership Covenant</h3>
-            <p className="text-blue-200 mb-6">Download and review the sacred covenant before beginning your application.</p>
-            <Button asChild className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold hover:from-blue-600 hover:to-indigo-700 transition-all duration-300 transform hover:scale-105">
-              <a href="/scrolls/membership-covenant.pdf" target="_blank" rel="noopener noreferrer">
-                <Download className="mr-2 h-4 w-4" />
-                Download Covenant
-              </a>
-            </Button>
-          </div>
-          <div className="celestial-bg p-8 rounded-2xl text-center flex flex-col items-center justify-center border border-yellow-400/20">
-            <Blocks className="w-10 h-10 text-yellow-400 mb-4" />
-            <h3 className="text-3xl font-bold text-yellow-300 sacred-font mb-4">Blockchain Verification</h3>
-            <p className="text-blue-200">Once verified, your spiritual ID will be minted as an NFT on the XRPL.</p>
           </div>
         </motion.section>
-
       </div>
     </>
   );

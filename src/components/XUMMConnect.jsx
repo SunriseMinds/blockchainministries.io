@@ -1,152 +1,118 @@
-import React, { useState, useEffect } from 'react';
-import XummSdk from 'xumm';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Xumm } from 'xumm';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { motion, AnimatePresence } from 'framer-motion';
+import { CheckCircle, Zap } from 'lucide-react';
 import QRCode from 'qrcode.react';
-import { useSupabase } from '../hooks/useSupabase';
 
-const XUMMConnect = () => {
-  const supabase = useSupabase();
+const xumm = new Xumm('69f2405e-177d-4f5b-999e-7225bee591f9');
 
-  const [xumm, setXumm] = useState(null);
-  const [payloadUuid, setPayloadUuid] = useState(null);
-  const [walletAddress, setWalletAddress] = useState(null);
-  const [error, setError] = useState(null);
-  const [connecting, setConnecting] = useState(false);
+export default function XUMMConnect() {
+  const [user, setUser] = useState(null);
+  const [authUrl, setAuthUrl] = useState('');
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    // Initialize Xumm SDK with API key and secret from environment variables
-    const apiKey = import.meta.env.VITE_XUMM_API_KEY;
-    const apiSecret = import.meta.env.VITE_XUMM_API_SECRET;
-
-    if (!apiKey || !apiSecret) {
-      setError('Missing XUMM API key or secret in environment variables.');
-      return;
+  const connect = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const { uuid, next, refs } = await xumm.authorize();
+      setAuthUrl(next.always);
+      setQrCodeUrl(refs.qr_png);
+      setIsLoading(false);
+    } catch (error) {
+      console.error('XUMM Connect Error:', error);
+      setIsLoading(false);
     }
-
-    const sdk = new XummSdk(apiKey, apiSecret);
-    setXumm(sdk);
   }, []);
 
-  const createPayload = async () => {
-    if (!xumm) {
-      setError('Xumm SDK not initialized.');
-      return;
+  useEffect(() => {
+    const handleSuccess = async () => {
+      const state = await xumm.state();
+      setUser(state.me);
+      setIsConnected(true);
+      setIsLoading(false);
+    };
+
+    const handleRejected = () => {
+      setIsLoading(false);
+      setAuthUrl('');
+      setQrCodeUrl('');
+      connect();
+    };
+
+    xumm.on("success", handleSuccess);
+    xumm.on("rejected", handleRejected);
+    
+    connect();
+
+    return () => {
+      xumm.off("success", handleSuccess);
+      xumm.off("rejected", handleRejected);
     }
-    setError(null);
-    setConnecting(true);
-
-    try {
-      // Create a payload for sign-in (arbitrary transaction to request user signature)
-      const payload = await xumm.payload.create({
-        txjson: {
-          TransactionType: 'SignIn',
-        },
-        options: {
-          submit: false,
-        },
-      });
-
-      setPayloadUuid(payload.uuid);
-
-      // Wait for the user to sign the payload
-      const resolved = await xumm.payload.get(payload.uuid, { expand: true });
-
-      if (resolved.meta.signed) {
-        const account = resolved.response.account;
-        setWalletAddress(account);
-
-        // Save session to Supabase and sign in user
-        await handleUserSignIn(account, payload.uuid);
-
-        setConnecting(false);
-      } else {
-        setError('User declined the connection.');
-        setConnecting(false);
-      }
-    } catch (err) {
-      setError('Error creating or resolving payload: ' + err.message);
-      setConnecting(false);
-    }
-  };
-
-  const handleUserSignIn = async (account, uuid) => {
-    try {
-      // Save session to xumm_sessions table
-      const { error: sessionError } = await supabase.from('xumm_sessions').insert([
-        {
-          wallet_address: account,
-          payload_uuid: uuid,
-          connected_at: new Date().toISOString(),
-        },
-      ]);
-      if (sessionError) {
-        console.error('Error saving session to Supabase:', sessionError);
-      }
-
-      // Check if user is already signed in
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        // Sign in anonymously if no session exists
-        const { data, error } = await supabase.auth.signInWithOtp({
-          email: `${account}@xumm.wallet`, // Using wallet address as email placeholder
-        });
-
-        if (error) {
-          console.error('Error signing in with OTP:', error);
-          setError('Authentication failed: ' + error.message);
-          return;
-        }
-      }
-
-      // Update user metadata with wallet address
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: { wallet_address: account },
-      });
-
-      if (updateError) {
-        console.error('Error updating user metadata:', updateError);
-      }
-    } catch (err) {
-      console.error('Exception in handleUserSignIn:', err);
-      setError('Authentication error: ' + err.message);
-    }
-  };
+  }, [connect]);
 
   return (
-    <div className="xumm-connect">
-      {!walletAddress && (
-        <>
-          <button
-            onClick={createPayload}
-            disabled={connecting}
-            className="btn btn-primary"
-          >
-            {connecting ? 'Connecting...' : 'Connect Wallet'}
-          </button>
-          {payloadUuid && (
-            <div className="qr-code">
-              <QRCode
-                value={`https://xumm.app/sign/${payloadUuid}`}
-                size={256}
-                level="H"
-                includeMargin={true}
-              />
-              <p>Scan the QR code with your XUMM Wallet to connect.</p>
-            </div>
+    <Card className="celestial-bg border-yellow-400/20 w-full text-white">
+      <CardHeader>
+        <CardTitle className="flex items-center text-yellow-300 sacred-font">
+          <Zap className="w-6 h-6 mr-2 animate-pulse" />
+          XRPL Wallet Connection
+        </CardTitle>
+        <CardDescription className="text-blue-300">
+          Connect your XUMM wallet to interact with our sacred offerings.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-6 text-center">
+        <AnimatePresence mode="wait">
+          {isConnected ? (
+            <motion.div
+              key="connected"
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="text-green-400 space-y-4"
+            >
+              <CheckCircle className="w-16 h-16 mx-auto" />
+              <h2 className="text-2xl font-bold sacred-font">Wallet Connected!</h2>
+              <p className="mt-2 text-sm text-green-200 break-all">Address: {user?.account}</p>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="not-connected"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-6"
+            >
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center h-48">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400"></div>
+                    <p className="mt-4 text-blue-200">Awaiting Connection...</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-blue-200">Scan with XUMM or click the button below.</p>
+                  {qrCodeUrl && (
+                    <div className="bg-white p-4 rounded-lg inline-block shadow-lg shadow-yellow-400/20">
+                      <QRCode value={qrCodeUrl} size={160} />
+                    </div>
+                  )}
+                  {authUrl && (
+                    <Button asChild className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-bold text-lg py-6">
+                      <a href={authUrl} target="_blank" rel="noopener noreferrer">
+                        Connect via XUMM
+                      </a>
+                    </Button>
+                  )}
+                </>
+              )}
+            </motion.div>
           )}
-        </>
-      )}
-      {walletAddress && (
-        <div>
-          <p>Connected Wallet Address:</p>
-          <code>{walletAddress}</code>
-        </div>
-      )}
-      {error && <p className="error">{error}</p>}
-    </div>
+        </AnimatePresence>
+      </CardContent>
+    </Card>
   );
-};
-
-export default XUMMConnect;
+}

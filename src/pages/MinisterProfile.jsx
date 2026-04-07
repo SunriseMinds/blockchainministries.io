@@ -1,22 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabaseClient as supabase } from '@/lib/supabaseClient';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Shield, BookOpen, Star } from 'lucide-react';
 import PagePlaceholder from '@/components/PagePlaceholder';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
-import XUMMConnect from '@/components/XUMMConnect';
-import { mintMinisterNFT } from '@/lib/mintMinisterNFT';
-import { useToast } from '@/components/ui/use-toast';
 
 const MinisterProfile = () => {
   const { ministerId } = useParams();
@@ -24,29 +15,20 @@ const MinisterProfile = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const [minterAccount, setMinterAccount] = useState('');
-  const [minting, setMinting] = useState(false);
-
   useEffect(() => {
     const fetchMinister = async () => {
       try {
         setLoading(true);
-        const { data, error } = await supabase
-          .from('ministers')
-          .select('*')
-          .eq('id', ministerId)
-          .single();
+        const ministerDocRef = doc(db, 'ministers', ministerId);
+        const ministerDoc = await getDoc(ministerDocRef);
 
-        if (error || !data) {
-          setError('Minister not found in the sacred archives.');
-          console.error('Supabase error:', error);
+        if (ministerDoc.exists()) {
+          setMinister({ id: ministerDoc.id, ...ministerDoc.data() });
         } else {
-          setMinister(data);
+          setError('Minister not found in the sacred archives.');
         }
       } catch (err) {
-        console.error('Error fetching minister:', err);
+        console.error("Error fetching minister:", err);
         setError('An error occurred while seeking the minister.');
       } finally {
         setLoading(false);
@@ -60,37 +42,7 @@ const MinisterProfile = () => {
     if (!name) return 'BM';
     const names = name.split(' ');
     if (names.length === 1) return names[0].charAt(0).toUpperCase();
-    return (
-      names[0].charAt(0) +
-      names[names.length - 1].charAt(0)
-    ).toUpperCase();
-  };
-
-  const handleMint = async () => {
-    if (!user || !minister) return;
-    setMinting(true);
-    try {
-      const result = await mintMinisterNFT(
-        minister.name,
-        minister.id,
-        minister.title,
-        new Date().toISOString(),
-        user.id,
-        minterAccount
-      );
-      toast({
-        title: 'NFT minted successfully!',
-        description: result.transactionId,
-      });
-    } catch (err) {
-      toast({
-        variant: 'destructive',
-        title: 'Minting failed',
-        description: err.message,
-      });
-    } finally {
-      setMinting(false);
-    }
+    return `${names[0].charAt(0)}${names[names.length - 1].charAt(0)}`.toUpperCase();
   };
 
   if (loading) {
@@ -106,29 +58,14 @@ const MinisterProfile = () => {
   }
 
   if (!minister) {
-    return (
-      <PagePlaceholder
-        title="Archive Search Error"
-        description="Minister not found in the sacred archives."
-      />
-    );
+    return <PagePlaceholder title="Archive Search Error" description="Minister not found in the sacred archives." />;
   }
-
+  
   return (
     <>
       <Helmet>
-        <title>
-          {minister.name
-            ? `${minister.name} - Minister`
-            : 'Minister Profile'}{' '}
-          | Blockchain Ministries
-        </title>
-        <meta
-          name="description"
-          content={`Profile of Minister ${
-            minister.name || 'of the Covenant'
-          }, serving in Blockchain Ministries.`}
-        />
+        <title>{minister.name ? `${minister.name} - Minister` : 'Minister Profile'} | Blockchain Ministries</title>
+        <meta name="description" content={`Profile of Minister ${minister.name || 'of the Covenant'}, serving in Blockchain Ministries.`} />
       </Helmet>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -138,11 +75,7 @@ const MinisterProfile = () => {
       >
         <Card className="max-w-4xl mx-auto bg-blue-950/30 border-yellow-400/20 text-white shadow-2xl shadow-blue-500/10 backdrop-blur-md">
           <CardHeader className="text-center p-8">
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: 0.2, type: 'spring' }}
-            >
+            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: 'spring' }}>
               <Avatar className="w-32 h-32 mx-auto mb-4 border-4 border-yellow-400/50">
                 <AvatarImage src={minister.imageUrl} alt={minister.name} />
                 <AvatarFallback className="bg-blue-800 text-yellow-300 text-4xl font-bold">
@@ -150,15 +83,11 @@ const MinisterProfile = () => {
                 </AvatarFallback>
               </Avatar>
             </motion.div>
-            <CardTitle className="text-4xl font-serif text-yellow-400 tracking-wider">
-              {minister.name || 'Unnamed Minister'}
-            </CardTitle>
-            <CardDescription className="text-yellow-200/80 text-lg mt-2">
-              {minister.title || 'Servant of the Covenant'}
-            </CardDescription>
+            <CardTitle className="text-4xl font-serif text-yellow-400 tracking-wider">{minister.name || "Unnamed Minister"}</CardTitle>
+            <CardDescription className="text-yellow-200/80 text-lg mt-2">{minister.title || "Servant of the Covenant"}</CardDescription>
           </CardHeader>
           <CardContent className="p-8 pt-0">
-            <div className="border-t border-yellow-400/20 my-6" />
+            <div className="border-t border-yellow-400/20 my-6"></div>
             <div className="space-y-8">
               <div>
                 <h3 className="text-2xl font-semibold text-yellow-300 mb-3 flex items-center">
@@ -166,23 +95,23 @@ const MinisterProfile = () => {
                   Sacred Bio
                 </h3>
                 <p className="text-lg text-gray-300 leading-relaxed italic">
-                  {minister.bio || 'No biography provided.'}
+                  {minister.bio || "No biography provided."}
                 </p>
               </div>
 
               {minister.specialties && minister.specialties.length > 0 && (
-                <div>
+                 <div>
                   <h3 className="text-2xl font-semibold text-yellow-300 mb-4 flex items-center">
                     <Star className="w-6 h-6 mr-3 text-yellow-400" />
                     Areas of Ministry
                   </h3>
                   <div className="flex flex-wrap gap-3">
-                    {minister.specialties.map((specialty, idx) => (
+                    {minister.specialties.map((specialty, index) => (
                       <motion.span
-                        key={idx}
+                        key={index}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.5 + idx * 0.1 }}
+                        transition={{ delay: 0.5 + index * 0.1 }}
                         className="bg-yellow-400/10 text-yellow-300 px-4 py-2 rounded-full text-sm border border-yellow-400/30"
                       >
                         {specialty}
@@ -191,17 +120,15 @@ const MinisterProfile = () => {
                   </div>
                 </div>
               )}
-
-              {minister.ordinationDate?.seconds && (
+             
+              {minister.ordinationDate && minister.ordinationDate.seconds && (
                 <div>
                   <h3 className="text-2xl font-semibold text-yellow-300 mb-3 flex items-center">
                     <Shield className="w-6 h-6 mr-3 text-yellow-400" />
                     Ordination Date
                   </h3>
                   <p className="text-lg text-gray-300">
-                    {new Date(
-                      minister.ordinationDate.seconds * 1000
-                    ).toLocaleDateString('en-US', {
+                    {new Date(minister.ordinationDate.seconds * 1000).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric',
@@ -211,22 +138,6 @@ const MinisterProfile = () => {
               )}
             </div>
           </CardContent>
-          <div className="mt-6 px-8">
-            <h3 className="text-xl font-semibold text-yellow-300 mb-4">
-              Mint Minister NFT Credential
-            </h3>
-            {!minterAccount ? (
-              <XUMMConnect onConnect={(address) => setMinterAccount(address)} />
-            ) : (
-              <button
-                onClick={handleMint}
-                disabled={minting}
-                className="bg-yellow-400 text-blue-900 font-bold py-2 px-4 rounded disabled:opacity-50"
-              >
-                {minting ? 'Minting...' : 'Mint Credential NFT'}
-              </button>
-            )}
-          </div>
         </Card>
       </motion.div>
     </>

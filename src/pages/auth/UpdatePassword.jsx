@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { useAuth } from '@/contexts/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,15 +18,17 @@ const UpdatePassword = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (!session) {
+    // The onAuthStateChange listener in AuthProvider handles session changes.
+    // We just need to check if the user is logged in when the component mounts.
+    if (!session && !loading) {
       toast({
-        title: "Invalid Session",
-        description: "You must be logged in to update your password. Redirecting to login.",
+        title: "Authentication Required",
+        description: "You need to be logged in to update your password. Please follow the link from your email again.",
         variant: "destructive",
       });
       navigate('/login');
     }
-  }, [session, navigate, toast]);
+  }, [session, loading, navigate, toast]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -41,7 +43,7 @@ const UpdatePassword = () => {
     } else {
       toast({
         title: "Password Updated",
-        description: "Your sacred key has been successfully updated.",
+        description: "Your sacred key has been successfully updated. You can now log in.",
       });
       navigate('/dashboard');
     }

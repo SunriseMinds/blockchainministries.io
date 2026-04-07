@@ -1,54 +1,93 @@
-
 import React from 'react';
-import { Button } from '../components/ui/button.jsx';
+import { Helmet } from 'react-helmet';
+import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
+import { ArrowRight, BookOpen } from 'lucide-react';
+import SacredSymbolCarousel from '@/pages/Home/components/SacredSymbolCarousel';
+import { Link } from 'react-router-dom';
+import ScrollsCTA from '@/pages/Home/components/ScrollsCTA';
 
-export default function HomePage() {
+const Home = () => {
   return (
-    <div className="min-h-screen text-white bg-gradient-to-br from-[#0A0F2C] to-[#162A64] relative overflow-hidden">
-      {/* Logo and Nav */}
-      <header className="flex justify-between items-center px-8 py-6 border-b border-white/10 bg-[#0A0F2C]/80 backdrop-blur-md z-10 relative">
-        <div className="flex items-center space-x-3">
-          <img src="/logo.svg" alt="Logo" className="w-8 h-8" />
-          <span className="font-bold text-lg text-yellow-400">Blockchain Ministries</span>
-        </div>
-        <nav className="flex items-center space-x-6 text-sm">
-          <a href="#home" className="hover:text-yellow-300">Home</a>
-          <a href="#about" className="hover:text-yellow-300">About</a>
-          <a href="#ministries" className="hover:text-yellow-300">Ministries</a>
-          <a href="#scrolls" className="hover:text-yellow-300">Scrolls</a>
-          <a href="#token" className="hover:text-yellow-300">Token</a>
-          <a href="#contact" className="hover:text-yellow-300">Contact</a>
-          <Button variant="outline" className="border-yellow-400 text-yellow-300 hover:bg-yellow-400 hover:text-black">Login</Button>
-          <Button variant="ghost" className="text-yellow-300 hover:underline">Join Us</Button>
-          <Button variant="default" className="bg-yellow-400 text-black hover:bg-yellow-300">Donate</Button>
-        </nav>
-      </header>
-
-      {/* Background Symbol (centered) */}
-      <div className="absolute inset-0 flex justify-center items-center opacity-20 z-0">
-        <img src="/symbol.svg" alt="Sacred Symbol" className="w-[60%]" />
-      </div>
-
-      {/* Main Content */}
-      <main className="relative z-10 flex flex-col items-center justify-center mt-20 text-center px-4">
-        <motion.h1
+    <>
+      <Helmet>
+        <title>Blockchain Ministries – A Sovereign Spiritual Trust</title>
+        <meta name="description" content="Official site for Blockchain Ministries. Explore sacred scrolls, join the covenant, and participate in planetary upliftment." />
+        <meta name="keywords" content="blockchain ministry, sovereign trust, spiritual organization, scrolls, NFT, covenant, XRPL" />
+        <link rel="canonical" href="https://blockchainministries.io/" />
+      </Helmet>
+      <div className="flex flex-col items-center justify-center text-center text-white p-4 py-24 min-h-[80vh]">
+        <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1 }}
-          className="text-5xl font-extrabold text-yellow-400 drop-shadow-lg mb-4"
+          transition={{ duration: 1, ease: "easeOut" }}
+          className="relative w-48 h-48 mb-8 flex items-center justify-center"
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-amber-600 rounded-full blur-3xl opacity-40 animate-pulse"></div>
+          <motion.svg
+            className="absolute inset-0 w-full h-full text-yellow-400/80"
+            viewBox="0 0 100 100"
+            aria-label="Sacred Geometry Logo Frame"
+            initial={{ rotate: -90 }}
+            animate={{ rotate: 270 }}
+            transition={{ duration: 40, repeat: Infinity, ease: 'linear' }}
+          >
+            <title>Sacred Geometry Logo Frame</title>
+            <circle cx="50" cy="50" r="45" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            <path d="M50 5 L95 27.5 L95 72.5 L50 95 L5 72.5 L5 27.5 Z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            <circle cx="50" cy="50" r="25" stroke="currentColor" strokeWidth="1" fill="none" />
+          </motion.svg>
+          <SacredSymbolCarousel />
+        </motion.div>
+
+        <motion.h1
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8, delay: 0.3, ease: "easeOut" }}
+          className="text-5xl md:text-7xl font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-yellow-400 to-amber-500 mb-4 sacred-font"
+          style={{ textShadow: '0 0 20px rgba(253, 224, 71, 0.4)' }}
         >
           Join the Covenant of Light & Truth
         </motion.h1>
-        <p className="max-w-2xl text-lg text-gray-200">
-          Embrace divine stewardship through decentralized trust and spiritual sovereignty.
-        </p>
-      </main>
 
-      {/* Footer */}
-      <footer className="text-center py-8 mt-24 text-sm text-gray-400 border-t border-white/10">
-        © 2025 Blockchain Ministries. A Sovereign Ecclesiastical Trust. All Rights Reserved.
-      </footer>
-    </div>
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.6 }}
+          className="text-lg md:text-xl text-blue-200 max-w-3xl mx-auto mb-12"
+        >
+          Blockchain Ministries is a decentralized spiritual trust, protected by divine law and encoded in immutable ledgers. We preserve sacred scrolls, serve global ministries, and empower sovereign believers through spiritual governance and digital truth.
+        </motion.p>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.9, type: "spring", stiffness: 100 }}
+          className="flex flex-col sm:flex-row gap-4"
+        >
+          <Button asChild size="lg" className="bg-gradient-to-r from-yellow-400 to-amber-600 text-blue-950 font-bold hover:from-yellow-300 hover:to-amber-500 transition-all duration-300 transform hover:scale-105 shadow-lg shadow-yellow-500/20">
+            <Link to="/join">
+              Join the Mission <ArrowRight className="ml-2 h-5 w-5" />
+            </Link>
+          </Button>
+          <Button asChild size="lg" variant="outline" className="text-yellow-400 border-yellow-400/50 hover:bg-yellow-400/10 hover:border-yellow-300 hover:text-yellow-300 transition-colors duration-300 backdrop-blur-sm">
+            <Link to="/scrolls">
+              Access Sacred Scrolls <BookOpen className="ml-2 h-5 w-5" />
+            </Link>
+          </Button>
+        </motion.div>
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 1.2 }}
+          className="text-md text-blue-300/80 mt-8 italic"
+        >
+          Seal your place in the divine ledger. Receive your scroll. Ignite your purpose.
+        </motion.p>
+      </div>
+      <ScrollsCTA />
+    </>
   );
-}
+};
+
+export default Home;

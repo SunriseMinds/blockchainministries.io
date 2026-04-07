@@ -1,26 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet, Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
-import { useSupabase } from '@/hooks/useSupabase';
+import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthProvider';
+import { supabase } from '@/lib/customSupabaseClient';
 import { Button } from '@/components/ui/button';
-import { LogOut, LayoutDashboard, Shield } from 'lucide-react';
+import { LogOut, LayoutDashboard, Shield, Settings } from 'lucide-react';
 import { Toaster } from "@/components/ui/toaster";
+import { cn } from '@/lib/utils';
 
 const DashboardLayout = () => {
   const { user, signOut } = useAuth();
   const [profile, setProfile] = useState(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const trustlineUrl = "https://xrpl.services?issuer=rhbwjNN6U6Zy6mzpsjWbnEg5RBy96TgiLw&currency=EFT&limit=100000000";
 
   useEffect(() => {
     if (user) {
-const supabase = useSupabase();
-const fetchProfile = async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+      const fetchProfile = async () => {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
         if (data) {
           setProfile(data);
         }
@@ -34,22 +35,28 @@ const fetchProfile = async () => {
     navigate('/');
   };
 
+  const isAdmin = profile?.role === 'admin';
+  const adminNavLinks = [
+    { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
+    { name: 'Management', href: '/admin/management', icon: Settings },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-950 via-[#0A192F] to-black font-sans text-white">
       <header className="bg-blue-950/50 backdrop-blur-lg p-4 sticky top-0 z-50 border-b border-yellow-400/20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <Link to="/dashboard" className="flex items-center space-x-3 group">
+        <div className="container mx-auto flex justify-between items-center">
+          <Link to={isAdmin ? "/admin" : "/dashboard"} className="flex items-center space-x-3 group">
             <LayoutDashboard className="w-8 h-8 text-yellow-400 group-hover:text-yellow-300 transition-colors" />
             <span className="font-bold text-xl text-yellow-300 group-hover:text-yellow-200 transition-colors">
-              Minister Dashboard
+              {isAdmin ? 'Admin Sanctuary' : 'Minister Dashboard'}
             </span>
           </Link>
           <div className="flex items-center gap-4">
-            {profile?.role === 'admin' && (
+            {isAdmin && (
               <Button asChild variant="ghost" size="sm" className="text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300">
-                <Link to="/admin/dashboard">
+                <Link to="/dashboard">
                   <Shield className="w-4 h-4 mr-2" />
-                  Admin Panel
+                  Member View
                 </Link>
               </Button>
             )}
@@ -58,7 +65,7 @@ const fetchProfile = async () => {
                 Set EFT TrustLine
               </a>
             </Button>
-            <span className="text-sm text-blue-300 hidden sm:block">Welcome, {profile?.full_name || user?.email}</span>
+            <span className="text-sm text-blue-300 hidden sm:block">Welcome, {profile?.display_name || user?.email}</span>
             <Button onClick={handleLogout} variant="outline" size="sm" className="text-yellow-400 border-yellow-400/50 hover:bg-yellow-400/10">
               <LogOut className="w-4 h-4 mr-2" />
               Logout
@@ -66,7 +73,30 @@ const fetchProfile = async () => {
           </div>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      
+      {isAdmin && (
+        <nav className="bg-black/20 border-b border-yellow-400/10">
+          <div className="container mx-auto flex items-center gap-4 p-2">
+            {adminNavLinks.map(link => (
+              <Link
+                key={link.href}
+                to={link.href}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                  location.pathname === link.href
+                    ? "bg-yellow-400/10 text-yellow-300"
+                    : "text-blue-200 hover:bg-blue-900/50 hover:text-white"
+                )}
+              >
+                <link.icon className="w-4 h-4" />
+                {link.name}
+              </Link>
+            ))}
+          </div>
+        </nav>
+      )}
+
+      <main className="container mx-auto px-4 py-8">
         <Outlet />
       </main>
       <Toaster />

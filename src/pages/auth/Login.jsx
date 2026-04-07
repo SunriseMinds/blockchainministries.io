@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { supabaseClient } from '@/lib/supabaseClient';
+import { useAuth } from '@/contexts/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +16,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const { signIn } = useAuth();
   const { toast } = useToast();
   const trustlineUrl = "https://xrpl.services?issuer=rhbwjNN6U6Zy6mzpsjWbnEg5RBy96TgiLw&currency=EFT&limit=100000000";
 
@@ -24,7 +25,7 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await signIn({ email, password });
     if (error) {
       toast({
         title: "Authentication Failed",
@@ -91,8 +92,8 @@ const Login = () => {
                 </p>
                 <p className="text-sm text-blue-300">
                   Don't have a covenant?{' '}
-                  <Link to="/signup" className="font-bold text-yellow-400 hover:text-yellow-300">
-                    Sign Up
+                  <Link to="/join" className="font-bold text-yellow-400 hover:text-yellow-300">
+                    Join Now
                   </Link>
                 </p>
               </div>

@@ -1,76 +1,66 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabaseClient } from '@/lib/supabaseClient';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { supabase } from '@/lib/customSupabaseClient';
+import { useAuth } from '@/contexts/AuthProvider';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
-import { Award, FileText, BadgeCheck, Gift } from 'lucide-react';
-import RecentUpdates from '@/components/dashboard/RecentUpdates';
+import { Award, FileText, BadgeCheck, Gift, Shield, Clock, XCircle } from 'lucide-react';
 
 const DashboardHome = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [membership, setMembership] = useState(null);
   const [ordinations, setOrdinations] = useState([]);
-  const [credentials, setCredentials] = useState([]);
   const [donations, setDonations] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchAllData = useCallback(async () => {
     if (!user) return;
+    try {
+      setLoading(true);
+      const [membershipRes, ordinationsRes, donationsRes] = await Promise.all([
+        supabase.from('memberships').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('ordinations').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('donations').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+      ]);
 
-    const fetchAllData = async () => {
-      try {
-        setLoading(true);
-        const [ordinationsRes, credentialsRes, donationsRes] = await Promise.all([
-          supabase.from('ordinations').select('*').eq('user_id', user.id).eq('status', 'approved'),
-          supabase.from('credentials').select('*').eq('user_id', user.id),
-          supabase.from('donations').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
-        ]);
+      if (membershipRes.error) throw membershipRes.error;
+      setMembership(membershipRes.data);
 
-        if (ordinationsRes.error) throw ordinationsRes.error;
-        setOrdinations(ordinationsRes.data || []);
+      if (ordinationsRes.error) throw ordinationsRes.error;
+      setOrdinations(ordinationsRes.data || []);
 
-        if (credentialsRes.error) throw credentialsRes.error;
-        setCredentials(credentialsRes.data || []);
+      if (donationsRes.error) throw donationsRes.error;
+      setDonations(donationsRes.data || []);
 
-        if (donationsRes.error) throw donationsRes.error;
-        setDonations(donationsRes.data || []);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      toast({
+        title: 'Error',
+        description: 'Could not load your sacred records. Please try again later.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [user, toast]);
 
-      } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-        toast({
-          title: 'Error',
-          description: 'Could not load your sacred records. Please try again later.',
-          variant: 'destructive',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
+  useEffect(() => {
     fetchAllData();
 
-    const channels = [];
-    const tables = ['ordinations', 'credentials', 'donations'];
-    tables.forEach(table => {
-        const channel = supabase
-            .channel(`realtime:public:${table}:member:${user.id}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: table, filter: `user_id=eq.${user.id}` },
-                (payload) => {
-                    console.log(`${table} change received!`, payload);
-                    toast({ title: `✨ Your ${table} have been updated!` });
-                    fetchAllData();
-                }
-            )
-            .subscribe();
-        channels.push(channel);
-    });
+    if (!user) return;
+    const channel = supabase
+      .channel(`realtime:member-dashboard:${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'memberships', filter: `user_id=eq.${user.id}` }, () => fetchAllData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ordinations', filter: `user_id=eq.${user.id}` }, () => fetchAllData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'donations', filter: `user_id=eq.${user.id}` }, () => fetchAllData())
+      .subscribe();
 
     return () => {
-      channels.forEach(channel => supabase.removeChannel(channel));
+      supabase.removeChannel(channel);
     };
-  }, [user, toast]);
+  }, [user, fetchAllData]);
 
   const cardVariants = {
     hidden: { opacity: 0, y: 20 },
@@ -80,6 +70,57 @@ const DashboardHome = () => {
   const itemVariants = {
     hidden: { opacity: 0, x: -20 },
     visible: { opacity: 1, x: 0 },
+  };
+
+  const MembershipStatusCard = () => {
+    let statusIcon, statusText, statusColor, description;
+    switch (membership?.status) {
+      case 'approved':
+        statusIcon = <BadgeCheck className="w-6 h-6" />;
+        statusText = 'Approved Member';
+        statusColor = 'text-green-400';
+        description = 'Your covenant is sealed. Welcome to the fellowship.';
+        break;
+      case 'pending':
+        statusIcon = <Clock className="w-6 h-6" />;
+        statusText = 'Membership Pending';
+        statusColor = 'text-yellow-400';
+        description = 'Your application is under review by the council.';
+        break;
+      case 'rejected':
+        statusIcon = <XCircle className="w-6 h-6" />;
+        statusText = 'Membership Rejected';
+        statusColor = 'text-red-400';
+        description = 'Please contact support for more information.';
+        break;
+      default:
+        statusIcon = <Shield className="w-6 h-6" />;
+        statusText = 'Not a Member';
+        statusColor = 'text-blue-300';
+        description = 'Apply for membership to unlock sacred benefits.';
+    }
+
+    return (
+      <Card className="bg-slate-900/50 border border-yellow-600/30 text-white">
+        <CardHeader>
+          <CardTitle className={`flex items-center gap-2 ${statusColor}`}>{statusIcon} {statusText}</CardTitle>
+          <CardDescription className="text-blue-300">{description}</CardDescription>
+        </CardHeader>
+        {membership?.status === 'approved' && membership.nft_token_id && (
+          <CardContent>
+            <p className="text-sm font-bold text-yellow-200">Your Membership NFT</p>
+            <a 
+              href={`https://livenet.xrpl.org/nft/${membership.nft_token_id}`} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-xs text-blue-300 break-all hover:text-yellow-400"
+            >
+              {membership.nft_token_id}
+            </a>
+          </CardContent>
+        )}
+      </Card>
+    );
   };
 
   const DataCard = ({ title, description, icon, data, renderItem, emptyText }) => (
@@ -114,7 +155,7 @@ const DashboardHome = () => {
         <title>Member Dashboard | Blockchain Ministries</title>
         <meta name="description" content="Your personal dashboard for managing ordinations, credentials, and donations." />
       </Helmet>
-      <div className="p-4 md:p-8">
+      <div>
         <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -136,33 +177,26 @@ const DashboardHome = () => {
               initial="hidden"
               animate="visible"
             >
+              <div className="lg:col-span-3">
+                <MembershipStatusCard />
+              </div>
               <DataCard
                 title="Your Ordinations"
-                description="All sacred ordinations approved by the council."
-                icon={<BadgeCheck />}
+                description="All sacred ordinations requested."
+                icon={<Award />}
                 data={ordinations}
-                emptyText="No approved ordinations found in the archives."
+                emptyText="No ordination requests found in the archives."
                 renderItem={o => (
                   <>
-                    <p className="font-bold text-yellow-200">{o.fullname}</p>
-                    <p className="text-sm text-blue-200">Approved on: {new Date(o.approved_at).toLocaleDateString()}</p>
-                  </>
-                )}
-              />
-              <DataCard
-                title="Your Credentials"
-                description="Digital and spiritual credentials issued to you."
-                icon={<Award />}
-                data={credentials}
-                emptyText="No credentials have been issued at this time."
-                renderItem={c => (
-                  <>
-                    <p className="font-bold text-yellow-200">{c.type}</p>
-                    <p className="text-sm text-blue-200">Issued on: {new Date(c.created_at).toLocaleDateString()}</p>
-                    <div className="flex gap-4 mt-2">
-                      {c.details?.pdf_url && <a href={c.details.pdf_url} target="_blank" rel="noopener noreferrer" className="text-blue-300 hover:text-yellow-400 flex items-center gap-1 text-sm"><FileText size={14}/> View PDF</a>}
-                      {c.details?.nft_url && <a href={c.details.nft_url} target="_blank" rel="noopener noreferrer" className="text-blue-300 hover:text-yellow-400 flex items-center gap-1 text-sm"><Award size={14}/> View NFT</a>}
+                    <div className="flex justify-between items-start">
+                      <p className="font-bold text-yellow-200">{o.application_json.fullName || 'Ordination Request'}</p>
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                        o.status === 'approved' ? 'bg-green-500/20 text-green-300' :
+                        o.status === 'pending' ? 'bg-yellow-500/20 text-yellow-300' :
+                        'bg-red-500/20 text-red-300'
+                      }`}>{o.status}</span>
                     </div>
+                    <p className="text-sm text-blue-200">Requested on: {new Date(o.created_at).toLocaleDateString()}</p>
                   </>
                 )}
               />
@@ -174,13 +208,12 @@ const DashboardHome = () => {
                 emptyText="No donations have been recorded in the archives."
                 renderItem={d => (
                   <>
-                    <p className="font-bold text-yellow-200">{d.amount} {d.currency}</p>
+                    <p className="font-bold text-yellow-200">${(d.amount_cents / 100).toFixed(2)} {d.currency.toUpperCase()}</p>
                     <p className="text-sm text-blue-200">Offered on: {new Date(d.created_at).toLocaleDateString()}</p>
-                    <p className="text-xs text-blue-300 capitalize mt-1">{d.donation_type.replace('-', ' ')}</p>
+                    <p className="text-xs text-blue-300 capitalize mt-1">{d.provider}</p>
                   </>
                 )}
               />
-              <RecentUpdates />
             </motion.div>
         )}
       </div>

@@ -5,16 +5,21 @@ import App from '@/App';
 import { Toaster } from '@/components/ui/toaster';
 import '@/index.css';
 import { AuthProvider } from '@/contexts/AuthProvider';
+import { PayPalScriptProvider } from "@paypal/react-paypal-js";
 
-/**
- * Entry point of the React application.
- * Sets up routing, authentication context, and UI notifications.
- */
+const initialOptions = {
+    "client-id": "test",
+    currency: "USD",
+    intent: "capture",
+};
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        <PayPalScriptProvider options={initialOptions}>
+          <App />
+        </PayPalScriptProvider>
         <Toaster />
       </AuthProvider>
     </BrowserRouter>

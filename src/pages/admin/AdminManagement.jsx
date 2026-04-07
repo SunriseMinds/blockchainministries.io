@@ -1,200 +1,143 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
-import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  CheckCircle,
-  XCircle,
-  Loader2,
-  User,
-  Award,
-} from 'lucide-react';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
-import XUMMConnect from '@/components/XUMMConnect';
-import { mintMinisterNFT } from '@/lib/mintMinisterNFT';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Loader2, Check, X, ShieldCheck, Award } from 'lucide-react';
 
 const AdminManagement = () => {
   const { toast } = useToast();
-  const { user } = useAuth();
-  const [minterAccount, setMinterAccount] = useState(user?.user_metadata?.wallet_address || '');
+  const [pendingMemberships, setPendingMemberships] = useState([]);
   const [pendingOrdinations, setPendingOrdinations] = useState([]);
-  const [pendingCredentials, setPendingCredentials] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [processingId, setProcessingId] = useState(null);
 
-  const fetchPendingRequests = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [ords, creds] = await Promise.all([
-        supabase
-          .from('ordinations')
-          .select('*, profiles(full_name)')
-          .eq('status', 'pending'),
-        supabase
-          .from('credentials')
-          .select('*, profiles(full_name)')
-          .eq('status', 'pending'),
+      const [membershipsRes, ordinationsRes] = await Promise.all([
+        supabase.from('memberships').select('*, profiles(display_name), users(email)').eq('status', 'pending'),
+        supabase.from('ordinations').select('*, profiles(display_name), users(email)').eq('status', 'pending')
       ]);
-      if (ords.error) throw ords.error;
-      if (creds.error) throw creds.error;
-      setPendingOrdinations(ords.data || []);
-      setPendingCredentials(creds.data || []);
+
+      if (membershipsRes.error) throw membershipsRes.error;
+      setPendingMemberships(membershipsRes.data);
+
+      if (ordinationsRes.error) throw ordinationsRes.error;
+      setPendingOrdinations(ordinationsRes.data);
+
     } catch (error) {
-      console.error('Error fetching pending requests:', error);
-      toast({
-        title: 'Error',
-        description: 'Could not fetch pending requests.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error fetching data', description: error.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   }, [toast]);
 
   useEffect(() => {
-    fetchPendingRequests();
-    const channel = supabase
-      .channel('realtime:admin:management')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'ordinations', filter: 'status=eq.pending' },
-        () => fetchPendingRequests()
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'credentials', filter: 'status=eq.pending' },
-        () => fetchPendingRequests()
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchPendingRequests]);
+    fetchData();
+  }, [fetchData]);
 
-  const handleApproveOrdination = async (id) => {
-    const { error } = await supabase
-      .from('ordinations')
-      .update({ status: 'approved', approved_at: new Date().toISOString() })
-      .eq('id', id);
-    if (error) {
-      toast({ title: 'Error Approving', description: error.message, variant: 'destructive' });
-    } else {
-      toast({
-        title: 'Success',
-        description: 'Ordination approved.',
-        className: 'bg-green-800/80 border-green-400 text-white backdrop-blur-md',
-      });
-      fetchPendingRequests();
-    }
-  };
-
-  const handleApproveCredential = async (req) => {
-    if (!minterAccount) {
-      toast({ title: 'No Wallet', description: 'Please connect your XUMM wallet first.', variant: 'destructive' });
-      return;
-    }
-    toast({ title: 'Minting NFT...', description: 'Please approve in your XUMM wallet.' });
+  const handleApproveMembership = async (membershipId) => {
+    setProcessingId(membershipId);
     try {
-      const data = await mintMinisterNFT(
-        req.profiles.full_name,
-        req.id,
-        req.role,
-        req.issued_date,
-        req.user_id,
-        minterAccount
-      );
-      const payload = data.xummPayload;
-      const { error } = await supabase
-        .from('credentials')
-        .update({
-          status: 'issued',
-          details: { xumm: payload },
-        })
-        .eq('id', req.id);
+      const { error } = await supabase.functions.invoke('admin-approve-membership', {
+        body: { membership_id: membershipId },
+      });
       if (error) throw error;
-      toast({
-        title: 'Success',
-        description: 'Credential approved and NFT issued.',
-        className: 'bg-green-800/80 border-green-400 text-white backdrop-blur-md',
-      });
-      fetchPendingRequests();
-    } catch (err) {
-      console.error('Mint NFT error:', err);
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Membership Approved', description: 'NFT minted and status updated.', className: 'bg-green-800 text-white' });
+      fetchData();
+    } catch (error) {
+      toast({ title: 'Approval Error', description: error.message, variant: 'destructive' });
+    } finally {
+      setProcessingId(null);
     }
   };
 
-  const handleReject = async (id, table) => {
-    const { error } = await supabase.from(table).update({ status: 'rejected' }).eq('id', id);
-    if (error) {
-      toast({ title: 'Error Rejecting', description: error.message, variant: 'destructive' });
-    } else {
-      toast({
-        title: 'Request Rejected',
-        description: 'The request has been marked as rejected.',
+  const handleApproveOrdination = async (ordinationId) => {
+    setProcessingId(ordinationId);
+    try {
+      const { error } = await supabase.functions.invoke('admin-approve-ordination', {
+        body: { ordination_id: ordinationId },
       });
-      fetchPendingRequests();
+      if (error) throw error;
+      toast({ title: 'Ordination Approved', description: 'Credential generated and status updated.', className: 'bg-green-800 text-white' });
+      fetchData();
+    } catch (error) {
+      toast({ title: 'Approval Error', description: error.message, variant: 'destructive' });
+    } finally {
+      setProcessingId(null);
     }
   };
 
-  const renderRequestList = (requests, type) => {
-    if (loading) {
-      return (
-        <div className="flex justify-center items-center p-8">
-          <Loader2 className="h-8 w-8 animate-spin text-yellow-400" />
-        </div>
-      );
+  const handleReject = async (table, id) => {
+    setProcessingId(id);
+    try {
+      const { error } = await supabase.from(table).update({ status: 'rejected' }).eq('id', id);
+      if (error) throw error;
+      toast({ title: 'Application Rejected', description: 'Status has been updated.', className: 'bg-yellow-800 text-white' });
+      fetchData();
+    } catch (error) {
+      toast({ title: 'Rejection Error', description: error.message, variant: 'destructive' });
+    } finally {
+      setProcessingId(null);
     }
-    if (!requests.length) {
-      return <p className="text-center text-blue-300 p-8">No pending {type} requests.</p>;
-    }
+  };
+
+  const renderApplicationCard = (item, type) => {
+    const isProcessing = processingId === item.id;
+    const email = item.users?.email || 'N/A';
+    const displayName = item.profiles?.display_name || 'N/A';
+
     return (
-      <div className="space-y-4">
-        {requests.map((req) => (
-          <Card key={req.id} className="bg-slate-800/50 border border-yellow-600/50">
-            <CardHeader>
-              <CardTitle className="text-yellow-300">
-                {type === 'ordination'
-                  ? `Ordination for: ${req.profiles.full_name}`
-                  : `Credential for: ${req.profiles.full_name}`}
-              </CardTitle>
-              <CardDescription className="text-blue-200 pt-1">
-                Requested by: {req.profiles.full_name || 'Unknown User'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex justify-end gap-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-red-400 hover:bg-red-900/50 hover:text-red-300"
-                onClick={() => handleReject(req.id, type === 'ordination' ? 'ordinations' : 'credentials')}
-              >
-                <XCircle className="mr-2 h-4 w-4" /> Reject
-              </Button>
-              <Button
-                size="sm"
-                className="bg-green-600 hover:bg-green-500 text-white"
-                onClick={() =>
-                  type === 'ordination'
-                    ? handleApproveOrdination(req.id)
-                    : handleApproveCredential(req)
-                }
-              >
-                <CheckCircle className="mr-2 h-4 w-4" /> Approve
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <motion.div
+        key={item.id}
+        layout
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="p-4 bg-slate-800/50 rounded-lg border border-yellow-400/20"
+      >
+        <div className="flex justify-between items-start">
+          <div>
+            <p className="font-bold text-yellow-300">{displayName}</p>
+            <p className="text-sm text-blue-300">{email}</p>
+            <p className="text-xs text-blue-400 mt-1">Applied: {new Date(item.created_at).toLocaleDateString()}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-green-500 text-green-400 hover:bg-green-500/10 hover:text-green-300"
+              onClick={() => type === 'membership' ? handleApproveMembership(item.id) : handleApproveOrdination(item.id)}
+              disabled={isProcessing}
+            >
+              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              <span className="ml-2">Approve</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-red-500 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+              onClick={() => handleReject(type === 'membership' ? 'memberships' : 'ordinations', item.id)}
+              disabled={isProcessing}
+            >
+              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+              <span className="ml-2">Reject</span>
+            </Button>
+          </div>
+        </div>
+        {type === 'ordination' && (
+          <div className="mt-4 p-3 bg-slate-900/70 rounded-md text-sm">
+            <p className="font-semibold text-yellow-400">Reason:</p>
+            <p className="text-blue-200 whitespace-pre-wrap">{item.application_json.reason}</p>
+            <p className="font-semibold text-yellow-400 mt-2">Experience:</p>
+            <p className="text-blue-200 whitespace-pre-wrap">{item.application_json.experience}</p>
+          </div>
+        )}
+      </motion.div>
     );
   };
 
@@ -202,44 +145,59 @@ const AdminManagement = () => {
     <>
       <Helmet>
         <title>Admin Management | Blockchain Ministries</title>
-        <meta name="description" content="Approve or reject pending ordinations and credentials." />
       </Helmet>
-      <div className="p-4 md:p-8 space-y-6">
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <h1 className="text-3xl font-bold text-yellow-300 sacred-font mb-2">Request Management</h1>
-          <p className="text-blue-200 mb-6">Review and process pending requests from members.</p>
-        </motion.div>
+      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
+        <h1 className="text-3xl font-bold text-yellow-300 sacred-font mb-2">Application Management</h1>
+        <p className="text-blue-200 mb-8">Review and process pending membership and ordination requests.</p>
+      </motion.div>
 
-        <div>
-          <h2 className="text-xl font-semibold text-yellow-300 mb-2">Connect Wallet</h2>
-          {!minterAccount ? (
-            <XUMMConnect onConnect={(address) => setMinterAccount(address)} />
-          ) : (
-            <p className="text-green-300">Connected: {minterAccount}</p>
-          )}
+      {loading ? (
+        <div className="flex justify-center items-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-yellow-400" />
+          <p className="ml-4 text-yellow-400">Loading applications...</p>
         </div>
-
-        <Tabs defaultValue="ordinations" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-slate-900/50 border border-yellow-600/30">
-            <TabsTrigger value="ordinations" className="text-blue-200 data-[state=active]:bg-slate-800 data-[state=active]:text-yellow-300">
-              <User className="mr-2 h-4 w-4" /> Pending Ordinations ({pendingOrdinations.length})
+      ) : (
+        <Tabs defaultValue="memberships" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 bg-blue-950/50 border border-yellow-400/20">
+            <TabsTrigger value="memberships">
+              <ShieldCheck className="w-4 h-4 mr-2" /> Memberships ({pendingMemberships.length})
             </TabsTrigger>
-            <TabsTrigger value="credentials" className="text-blue-200 data-[state=active]:bg-slate-800 data-[state=active]:text-yellow-300">
-              <Award className="mr-2 h-4 w-4" /> Pending Credentials ({pendingCredentials.length})
+            <TabsTrigger value="ordinations">
+              <Award className="w-4 h-4 mr-2" /> Ordinations ({pendingOrdinations.length})
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="ordinations" className="mt-4">
-            {renderRequestList(pendingOrdinations, 'ordination')} 
+          <TabsContent value="memberships" className="mt-6">
+            <Card className="celestial-bg border-yellow-400/20">
+              <CardHeader>
+                <CardTitle>Pending Membership Applications</CardTitle>
+                <CardDescription>Approve to mint membership NFT and grant access.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {pendingMemberships.length > 0 ? (
+                  pendingMemberships.map(item => renderApplicationCard(item, 'membership'))
+                ) : (
+                  <p className="text-center text-blue-300 py-8">No pending membership applications.</p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
-          <TabsContent value="credentials" className="mt-4">
-            {renderRequestList(pendingCredentials, 'credential')}
-          </TabsContent> 
+          <TabsContent value="ordinations" className="mt-6">
+            <Card className="celestial-bg border-yellow-400/20">
+              <CardHeader>
+                <CardTitle>Pending Ordination Requests</CardTitle>
+                <CardDescription>Approve to generate and issue ministerial credentials.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {pendingOrdinations.length > 0 ? (
+                  pendingOrdinations.map(item => renderApplicationCard(item, 'ordination'))
+                ) : (
+                  <p className="text-center text-blue-300 py-8">No pending ordination requests.</p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
-      </div>
+      )}
     </>
   );
 };
