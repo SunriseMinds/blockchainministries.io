@@ -73,11 +73,15 @@ Workers Builds Git integration.
 |---|---|
 | Project name | `blockchainministries-io` |
 | Build command | `npm run build` |
-| Deploy command | `npx wrangler deploy` |
-| Non-production branch deploy command | `npx wrangler versions upload` |
+| Deploy command | `npm run deploy` |
+| Non-production branch deploy command | `npm run deploy:preview` |
 | Path | `/` |
 | Production branch | `main` |
-| Node version | `22` |
+| Node version | `22` (set `NODE_VERSION=22` env var) |
+
+> Use the npm scripts (not `npx wrangler` directly) so the deploy uses the repo's
+> pinned wrangler `4.114.0`; the Workers Builds `npx` path was seen fetching an
+> older wrangler that fails to parse `vite.config.js`.
 
 SPA routing is handled natively by `wrangler.jsonc`
 (`assets.not_found_handling: "single-page-application"`, output `./dist`); security

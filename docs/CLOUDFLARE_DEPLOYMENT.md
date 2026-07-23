@@ -38,14 +38,26 @@ the **frontend only** — Supabase and Firebase remain the backend for now.
 |---|---|
 | **Project name** | `blockchainministries-io` |
 | **Build command** | `npm run build` |
-| **Deploy command** | `npx wrangler deploy` |
-| **Non-production branch deploy command** | `npx wrangler versions upload` |
+| **Deploy command** | `npm run deploy` |
+| **Non-production branch deploy command** | `npm run deploy:preview` |
 | **Path** | `/` |
 | **Production branch** | `main` |
 
+> **Important — use the npm scripts, not `npx wrangler` directly.**
+> `npm run deploy` runs `wrangler deploy` and `npm run deploy:preview` runs
+> `wrangler versions upload`, both resolving the repo's **pinned local wrangler
+> (`4.114.0`)** via `node_modules/.bin`. Running `npx wrangler deploy` in the
+> Workers Builds environment was observed to **ignore the pinned version and fetch
+> an older wrangler (`4.86.0`)**, which fatally fails with
+> `Error parsing file: vite.config.js`. The pinned 4.114.0 parses the config
+> correctly. If you must use `npx`, use `npx --no-install wrangler deploy` so it
+> only ever uses the local pinned version.
+
 ### Node version
-Repo pins Node via `.nvmrc` = **22** (Workers Builds reads it). Optionally set build
-env var `NODE_VERSION = 22` to be explicit.
+Repo pins Node via `.nvmrc` = **22**. Workers Builds was observed to default to
+**Node 20** and not read `.nvmrc`, so set the build environment variable
+`NODE_VERSION = 22` explicitly. (The build succeeds on Node 20 as well, but 22 is the
+pinned target.)
 
 ### Environment variables (build-time, PUBLIC only)
 Set on the build configuration. Only `VITE_*` (public) values — **never** server
@@ -114,11 +126,11 @@ is tested and approved. Hostinger stays live as fallback.
 ```
 Project name:            blockchainministries-io
 Build command:           npm run build
-Deploy command:          npx wrangler deploy
-Non-prod deploy command: npx wrangler versions upload
+Deploy command:          npm run deploy            (wrangler deploy, pinned 4.114.0)
+Non-prod deploy command: npm run deploy:preview    (wrangler versions upload)
 Path:                    /
 Production branch:       main   (merge feature branch first)
-Node version:            22
+Node version:            22     (set NODE_VERSION=22 env var; .nvmrc not auto-read)
 Output directory:        ./dist  (via wrangler.jsonc assets.directory)
 SPA fallback:            wrangler.jsonc not_found_handling=single-page-application
 Headers:                 public/_headers
