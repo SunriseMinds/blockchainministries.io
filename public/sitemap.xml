@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://blockchainministries.io/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://blockchainministries.io/about</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://blockchainministries.io/ordination</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://blockchainministries.io/ministries</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://blockchainministries.io/join</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://blockchainministries.io/scrolls</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://blockchainministries.io/token</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://blockchainministries.io/donate</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://blockchainministries.io/recognition</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://blockchainministries.io/partnerships</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://blockchainministries.io/ministers</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://blockchainministries.io/contact</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://blockchainministries.io/privacy</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://blockchainministries.io/terms</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+</urlset>

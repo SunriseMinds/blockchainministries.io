@@ -29,6 +29,11 @@ const Footer = () => {
         </div>
       </div>
       <div className="mt-8 border-t border-yellow-400/10 pt-6">
+        <nav className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-3">
+          <Link to="/privacy" className="text-sm text-blue-300 hover:text-yellow-300 transition-colors">Privacy Policy</Link>
+          <Link to="/terms" className="text-sm text-blue-300 hover:text-yellow-300 transition-colors">Terms of Service</Link>
+          <Link to="/contact" className="text-sm text-blue-300 hover:text-yellow-300 transition-colors">Contact</Link>
+        </nav>
         <p className="text-sm text-blue-400">contact@blockchainministries.io | Contact us for official correspondence.</p>
       </div>
     </footer>

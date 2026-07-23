@@ -1,0 +1,4 @@
+# Cloudflare Pages SPA fallback for React Router (BrowserRouter).
+# Serve index.html for any path not matching a static asset, so deep links
+# and refreshes on client-side routes (e.g. /login, /token, /scrolls) work.
+/*    /index.html   200
