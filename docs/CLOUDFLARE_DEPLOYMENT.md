@@ -1,106 +1,126 @@
-# Cloudflare Pages Deployment — Blockchain Ministries
+# Cloudflare Deployment — Blockchain Ministries (Workers Builds)
 
-Exact settings to deploy this React/Vite SPA to **Cloudflare Pages**. This covers
-the **frontend only** — Supabase and Firebase remain the backend for now
-(no backend migration yet).
+Exact settings to deploy this React 18 + Vite **static SPA** through Cloudflare's
+current **Workers Builds** Git integration (static assets via Wrangler). This covers
+the **frontend only** — Supabase and Firebase remain the backend for now.
 
-## Product choice
-**Cloudflare Pages** (not Workers). The app is a static SPA — no server-side code
-runs at request time today. Pages Functions/Workers come later, only when the
-backend migration begins.
+> Uses the current Workers Builds flow, **not** the older Cloudflare Pages dashboard.
+
+## How it works
+- The build runs `npm run build`, producing `./dist`.
+- `wrangler.jsonc` (repo root) declares a **static-assets-only Worker** (no fetch
+  handler) that serves `./dist`.
+- SPA routing is handled natively by `assets.not_found_handling:
+  "single-page-application"` — no `_redirects` file (removed to avoid a conflicting
+  fallback that would also mask missing-asset 404s).
+
+## `wrangler.jsonc` (already in the repo)
+```jsonc
+{
+  "name": "blockchainministries-io",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
+```
+- **No `main`/Worker script** — a fetch handler is only added later when server-side
+  APIs (D1/R2/Workers) are introduced.
+- `single-page-application` mode rewrites only extension-less navigation requests to
+  `index.html` (200); a request for a real-looking asset path that is missing still
+  returns a genuine 404, so broken asset references are not hidden.
 
 ---
 
-## 1. Connect the repository
-- Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git**.
-- Repository: **`SunriseMinds/blockchainministries.io`**.
-
-## 2. Build settings (enter exactly)
-| Setting | Value |
+## Cloudflare dashboard — exact field values (Workers Builds)
+| Field | Value |
 |---|---|
-| **Framework preset** | `Vite` (or "None" — settings below are what matter) |
-| **Root directory** | `/` (repository root) |
+| **Project name** | `blockchainministries-io` |
 | **Build command** | `npm run build` |
-| **Build output directory** | `dist` |
-| **Install command** | `npm ci` (auto-detected from `package-lock.json`) |
+| **Deploy command** | `npx wrangler deploy` |
+| **Non-production branch deploy command** | `npx wrangler versions upload` |
+| **Path** | `/` |
 | **Production branch** | `main` |
 
-> **Production branch note:** the approved Phase 2A work is currently on
-> `claude/blockchain-ministries-github-4lpvcf`. Cloudflare builds its **production**
-> deployment from the branch set as "Production branch" (recommended: `main`).
-> To ship to production, merge the feature branch into `main` first (open a PR when
-> you're ready — I won't push to `main` without your go). Until then, Cloudflare
-> creates a **preview deployment** for the feature branch that you can test on a
-> `*.pages.dev` URL immediately.
+### Node version
+Repo pins Node via `.nvmrc` = **22** (Workers Builds reads it). Optionally set build
+env var `NODE_VERSION = 22` to be explicit.
 
-## 3. Node version
-The repo pins Node via `.nvmrc` = **22**. Cloudflare Pages reads `.nvmrc`
-automatically. To be explicit, also add an environment variable:
-- `NODE_VERSION = 22`
-
-## 4. Environment variables (Pages → Settings → Environment variables)
-Set these for **Production** (and **Preview** if you want previews fully functional).
-Only `VITE_*` (public) values belong here — **never** put server secrets in Pages.
+### Environment variables (build-time, PUBLIC only)
+Set on the build configuration. Only `VITE_*` (public) values — **never** server
+secrets (no Stripe secret, SMTP, XRPL seed, Supabase service role, or API tokens here).
 
 | Variable | Required? | Notes |
 |---|---|---|
-| `VITE_STRIPE_PUBLISHABLE_KEY` | For donations | `pk_live_...` (or `pk_test_...` for preview) |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | For donations | `pk_live_...` / `pk_test_...` |
 | `VITE_PAYPAL_CLIENT_ID` | For PayPal | public client id |
-| `VITE_SUPABASE_URL` | Optional | app currently hard-codes this; set for consistency |
-| `VITE_SUPABASE_ANON_KEY` | Optional | public anon key; hard-coded today |
+| `VITE_SUPABASE_URL` | Optional | hard-coded fallback exists |
+| `VITE_SUPABASE_ANON_KEY` | Optional | public anon key; hard-coded fallback exists |
 | `VITE_NEXT_PUBLIC_SITE_URL` | Optional | `https://blockchainministries.io` |
 | `VITE_NEXT_PUBLIC_XRPL_EXPLORER` | Optional | `https://livenet.xrpl.org` |
 
-> The site will build and render without any env vars because Supabase URL/anon key
-> are hard-coded in the export. Stripe/PayPal flows, however, need their `VITE_*`
-> keys to function.
+> The app builds and renders without any env vars (Supabase URL/anon key are
+> hard-coded in the export); Stripe/PayPal flows need their `VITE_*` keys.
 
-## 5. SPA routing & headers (already in the repo)
-- **`public/_redirects`** → `/*  /index.html  200` (client-side routes and refreshes
-  return the app, not 404). No extra Pages config needed.
-- **`public/_headers`** → conservative security headers + long-cache for `/assets/*`.
-  No CSP (intentional, to avoid breaking Supabase/fonts/Stripe/PayPal/wallets).
+### API token permissions (if you create a scoped token instead of OAuth)
+When connecting via the dashboard's Git integration you normally authorize with your
+Cloudflare login. If you instead use a **custom API token** (e.g. for CI), grant:
+- **Workers Scripts: Edit** (deploy the Worker + upload versions)
+- **Account Settings: Read** (resolve the account)
+- **Workers Builds** / Workers R2/D1 etc. — only add later when those bindings exist
+- Scope the token to the **specific account** (and zone only if attaching a domain)
 
-Do **not** add a second redirect system — `_redirects` is the single source of truth.
+Least privilege: Workers Scripts **Edit** + Account **Read** is sufficient for the
+static-assets deploy described here.
 
-## 6. First deploy & verification (on the temporary `*.pages.dev` URL)
-Verify before touching DNS:
+---
+
+## Local commands (optional, mirror the dashboard)
+```bash
+npm ci
+npm run build
+npx wrangler deploy --dry-run   # validate config without deploying
+npx wrangler deploy             # production deploy (needs Cloudflare auth)
+npx wrangler versions upload    # non-production/preview version
+```
+Convenience scripts also exist: `npm run deploy`, `npm run deploy:preview`.
+
+## Production branch note
+Approved work currently lives on `claude/blockchain-ministries-github-4lpvcf`.
+Workers Builds deploys **production** from the branch set as **Production branch**
+(recommended: `main`). Merge the feature branch into `main` when ready (open a PR —
+`main` is not pushed to without approval). Non-production branches get a preview
+version via `wrangler versions upload`.
+
+## Verification (before any DNS change)
+On the temporary `*.workers.dev` URL:
 1. Home renders identically to Hostinger (fonts, gold-on-blue theme, animations).
-2. Direct-load and refresh on deep routes: `/about`, `/ministries`, `/scrolls`,
-   `/token`, `/join`, `/donate`, `/contact`, `/login`, `/privacy`, `/terms` → all 200,
-   no 404.
-3. Unknown route (e.g. `/nope`) shows the in-app "404 - Scroll Not Found" page.
-4. Auth: sign-up / login / logout / password reset work (Supabase). **Add the
-   `*.pages.dev` origin to Supabase Auth → URL Configuration** (redirect URLs), or
-   password-reset/verify links will fail.
-5. Forms: contact + scroll request submit (writes to Supabase).
-6. Browser console clean of blocking errors; `favicon.svg`, `robots.txt`,
-   `sitemap.xml` load.
-7. Mobile + desktop layouts.
+2. Direct-load + refresh deep routes: `/about`, `/ministries`, `/scrolls`, `/token`,
+   `/join`, `/donate`, `/contact`, `/login`, `/privacy`, `/terms` → all 200.
+3. Unknown route (e.g. `/nope`) → in-app "404 - Scroll Not Found".
+4. A missing asset path returns a real 404 (not index.html).
+5. Auth (Supabase): sign-up/login/logout/reset — **add the `*.workers.dev` origin to
+   Supabase → Authentication → URL Configuration** or email links fail.
+6. Contact + scroll-request forms submit (write to Supabase).
+7. Console clean; `favicon.svg`, `robots.txt`, `sitemap.xml`, `_headers` apply.
+8. Mobile + desktop.
 
-## 7. Custom domain (LATER — do not attach yet)
-Do **not** attach `blockchainministries.io` or change DNS until the `*.pages.dev`
-deployment is tested and approved. Hostinger must stay live as the fallback. When
-approved, add the custom domain in Pages → Custom domains and follow the DNS steps
-then (separate approval).
-
-## 8. GitHub Actions
-None configured in this repo (`.github/workflows` absent). Cloudflare Pages builds
-directly from the Git integration, so no Actions workflow is required. (Optional: a
-CI workflow to run `npm run build` on PRs can be added later if desired.)
+## Custom domain (LATER — do not attach yet)
+Do not attach `blockchainministries.io` or change DNS until the temporary deployment
+is tested and approved. Hostinger stays live as fallback.
 
 ## Quick reference
 ```
-Framework preset:        Vite
-Root directory:          /
+Project name:            blockchainministries-io
 Build command:           npm run build
-Build output directory:  dist
-Production branch:        main   (merge feature branch first)
-Node version:            22      (.nvmrc; or NODE_VERSION=22)
-Public env vars:         VITE_STRIPE_PUBLISHABLE_KEY, VITE_PAYPAL_CLIENT_ID,
-                         VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY,
-                         VITE_NEXT_PUBLIC_SITE_URL, VITE_NEXT_PUBLIC_XRPL_EXPLORER
-SPA fallback:            public/_redirects  (/* /index.html 200)
+Deploy command:          npx wrangler deploy
+Non-prod deploy command: npx wrangler versions upload
+Path:                    /
+Production branch:       main   (merge feature branch first)
+Node version:            22
+Output directory:        ./dist  (via wrangler.jsonc assets.directory)
+SPA fallback:            wrangler.jsonc not_found_handling=single-page-application
 Headers:                 public/_headers
 Custom domain:           attach later, after approval
 ```

@@ -1,0 +1,28 @@
+{
+  // Cloudflare Workers static-assets configuration for the Blockchain Ministries
+  // React 18 + Vite single-page app. This deploys the pre-built ./dist directory
+  // as static assets through the Workers Builds Git integration.
+  //
+  // No `main` / fetch handler is defined on purpose: this is a static SPA and
+  // Cloudflare serves the assets directly. A Worker script is only needed once
+  // server-side APIs (D1/R2/Workers) are introduced in a later phase.
+  //
+  // Secrets (Stripe secret, SMTP, XRPL seed, Supabase service role, tokens) must
+  // NEVER live here. Only public build-time VITE_* values belong in the build env.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blockchainministries-io",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    // Vite build output.
+    "directory": "./dist",
+    // React Router (BrowserRouter) fallback: navigation requests that don't match
+    // a built asset are served index.html (HTTP 200) so deep links and refreshes
+    // on routes like /login, /join, /token, /scrolls, /privacy, /terms work.
+    //
+    // In single-page-application mode Cloudflare only rewrites requests that do
+    // NOT contain a file extension. Requests for a real asset path that is missing
+    // (e.g. /assets/app-abc123.js) return a genuine 404 instead of being masked by
+    // index.html — so broken asset references are not silently hidden.
+    "not_found_handling": "single-page-application"
+  }
+}

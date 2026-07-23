@@ -1,4 +1,4 @@
-# Conservative security headers for Cloudflare Pages.
+# Conservative security headers for Cloudflare Workers static assets.
 # Intentionally NO Content-Security-Policy here: a strict CSP would risk
 # breaking Supabase, Google Fonts, Stripe/PayPal, XRPL/Xaman links, and
 # inline QR generation. A tested CSP can be introduced later.

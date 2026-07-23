@@ -65,17 +65,25 @@ secret storage, never in the repo.
 | `VITE_NEXT_PUBLIC_SITE_URL` | `https://blockchainministries.io` |
 | `VITE_NEXT_PUBLIC_XRPL_EXPLORER` | `https://livenet.xrpl.org` |
 
-## Deployment (Cloudflare Pages)
-| Setting | Value |
+## Deployment (Cloudflare Workers Builds)
+Deployed as a static-assets Worker via `wrangler.jsonc` through Cloudflare's current
+Workers Builds Git integration.
+
+| Dashboard field | Value |
 |---|---|
+| Project name | `blockchainministries-io` |
 | Build command | `npm run build` |
-| Build output directory | `dist` |
+| Deploy command | `npx wrangler deploy` |
+| Non-production branch deploy command | `npx wrangler versions upload` |
+| Path | `/` |
 | Production branch | `main` |
 | Node version | `22` |
 
-SPA routing is handled by `public/_redirects` (`/* /index.html 200`); security
-headers by `public/_headers`. Full instructions and verification steps:
-**`docs/CLOUDFLARE_DEPLOYMENT.md`**.
+SPA routing is handled natively by `wrangler.jsonc`
+(`assets.not_found_handling: "single-page-application"`, output `./dist`); security
+headers by `public/_headers`. (No `_redirects` file — it would conflict with the
+native SPA fallback.) Full instructions, env vars, token permissions, and
+verification steps: **`docs/CLOUDFLARE_DEPLOYMENT.md`**.
 
 ## Supabase configuration
 After deploying, add the deployment origin(s) to **Supabase → Authentication → URL
