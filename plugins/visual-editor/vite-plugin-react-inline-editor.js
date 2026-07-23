@@ -3,34 +3,20 @@ import { parse } from '@babel/parser';
 import traverseBabel from '@babel/traverse';
 import * as t from '@babel/types';
 import fs from 'fs';
-import { 
-	validateFilePath, 
-	parseFileToAST, 
-	findJSXElementAtPosition,
-	generateCode,
+import {
+	parseFileToAST,
 	generateSourceWithMap,
 	VITE_PROJECT_ROOT
 } from '../utils/ast-utils.js';
+import { groupEditsByFile, applyElementEdit, writeBackEdits } from './server/source-writer.js';
 
 const EDITABLE_JSX_TAGS = ["a", "Link", "button", "Button", "p", "span", "h1", "h2", "h3", "h4", "h5", "h6", "label", "Label", "img"];
 
-function parseEditId(editId) {
-	const parts = editId.split(':');
-
-	if (parts.length < 3) {
-		return null;
-	}
-
-	const column = parseInt(parts.at(-1), 10);
-	const line = parseInt(parts.at(-2), 10);
-	const filePath = parts.slice(0, -2).join(':');
-
-	if (!filePath || isNaN(line) || isNaN(column)) {
-		return null;
-	}
-
-	return { filePath, line, column };
-}
+// Inline tags that are treated as editable text content of their parent rather
+// than as independently editable elements. A parent containing only these (plus
+// text) stays editable as a single contenteditable region; the inline markup is
+// preserved/rebuilt on write-back by `buildChildrenFromText`.
+const INLINE_EDIT_HTML_TAGS = ["br", "strong", "em", "b", "i", "u", "span", "a"];
 
 function checkTagNameEditable(openingElementNode, editableTagsList = EDITABLE_JSX_TAGS) {
 	if (!openingElementNode || !openingElementNode.name) return false;
@@ -54,42 +40,97 @@ function validateImageSrc(openingNode) {
 		return { isValid: true, reason: null }; // Not an image, skip validation
 	}
 
-	const hasPropsSpread = openingNode.attributes.some(attr =>
-		t.isJSXSpreadAttribute(attr) &&
-		attr.argument &&
-		t.isIdentifier(attr.argument) &&
-		attr.argument.name === 'props'
+	const hasPropsSpread = openingNode.attributes.some(attribute =>
+		t.isJSXSpreadAttribute(attribute) &&
+		attribute.argument &&
+		t.isIdentifier(attribute.argument) &&
+		attribute.argument.name === 'props'
 	);
 
 	if (hasPropsSpread) {
 		return { isValid: false, reason: 'props-spread' };
 	}
 
-	const srcAttr = openingNode.attributes.find(attr =>
-		t.isJSXAttribute(attr) &&
-		attr.name &&
-		attr.name.name === 'src'
+	const sourceAttribute = openingNode.attributes.find(attribute =>
+		t.isJSXAttribute(attribute) &&
+		attribute.name &&
+		attribute.name.name === 'src'
 	);
 
-	if (!srcAttr) {
+	if (!sourceAttribute) {
 		return { isValid: false, reason: 'missing-src' };
 	}
 
-	if (!t.isStringLiteral(srcAttr.value)) {
+	if (!t.isStringLiteral(sourceAttribute.value)) {
 		return { isValid: false, reason: 'dynamic-src' };
 	}
 
-	if (!srcAttr.value.value || srcAttr.value.value.trim() === '') {
+	if (!sourceAttribute.value.value || sourceAttribute.value.value.trim() === '') {
 		return { isValid: false, reason: 'empty-src' };
 	}
 
 	return { isValid: true, reason: null };
 }
 
+/**
+ * For an editable `<a>` / `<Link>` / `<NavLink>`, returns the name of the URL
+ * attribute (`href` or `to`) when it holds a static string literal, so the
+ * inline editor can edit the link in place and write it back to source.
+ * Returns `null` for non-link tags or dynamic/expression URLs.
+ * @param {import('@babel/types').JSXOpeningElement} openingNode
+ * @returns {string|null}
+ */
+function detectUrlAttribute(openingNode) {
+	const tagName = openingNode.name?.name || openingNode.name?.property?.name || '';
+	let attributeName = null;
+	if (tagName === 'a') attributeName = 'href';
+	else if (tagName === 'Link' || tagName === 'NavLink') attributeName = 'to';
+	if (!attributeName) return null;
+
+	const matchedAttribute = openingNode.attributes.find(attribute =>
+		t.isJSXAttribute(attribute) && attribute.name?.name === attributeName
+	);
+	if (!matchedAttribute || !matchedAttribute.value) return null;
+
+	if (t.isStringLiteral(matchedAttribute.value)) return attributeName;
+	if (t.isJSXExpressionContainer(matchedAttribute.value) && t.isStringLiteral(matchedAttribute.value.expression)) return attributeName;
+
+	return null;
+}
+
+/**
+ * Recursively detects whether a JSX subtree renders any dynamic `{...}`
+ * expression. Used to tell whether an element's visible text is produced at
+ * runtime (e.g. `<span>{word}</span>` or `{letters.map(...)}`); such elements
+ * must not be flagged as inline-editable.
+ * @param {import('@babel/types').Node} node
+ * @returns {boolean}
+ */
+function subtreeContainsDynamicExpression(node) {
+	if (!node || !Array.isArray(node.children)) return false;
+	return node.children.some(child => {
+		if (t.isJSXExpressionContainer(child)) return true;
+		if (t.isJSXElement(child) || t.isJSXFragment(child)) return subtreeContainsDynamicExpression(child);
+		return false;
+	});
+}
+
 export default function inlineEditPlugin() {
+	const recentDraftWrites = new Map();
+	const DRAFT_WRITE_HMR_SUPPRESS_MILLISECONDS = 2000;
+
 	return {
 		name: 'vite-inline-edit-plugin',
 		enforce: 'pre',
+
+		handleHotUpdate(context) {
+			const expiry = recentDraftWrites.get(context.file);
+			if (expiry === undefined) return;
+			if (Date.now() <= expiry) {
+				return [];
+			}
+			recentDraftWrites.delete(context.file);
+		},
 
 		transform(code, id) {
 			if (!/\.(jsx|tsx)$/.test(id) || !id.startsWith(VITE_PROJECT_ROOT) || id.includes('node_modules')) {
@@ -119,7 +160,7 @@ export default function inlineEditPlugin() {
 							}
 
 							const alreadyHasId = openingNode.attributes.some(
-								(attr) => t.isJSXAttribute(attr) && attr.name.name === 'data-edit-id'
+								(attribute) => t.isJSXAttribute(attribute) && attribute.name.name === 'data-edit-id'
 							);
 
 							if (alreadyHasId) {
@@ -148,14 +189,15 @@ export default function inlineEditPlugin() {
 							// Condition 2: Does the element have dynamic or editable children
 							if (t.isJSXElement(elementNode) && elementNode.children) {
 								// Check if element has {...props} spread attribute - disable editing if it does
-								const hasPropsSpread = openingNode.attributes.some(attr => t.isJSXSpreadAttribute(attr)
-									&& attr.argument
-									&& t.isIdentifier(attr.argument)
-									&& attr.argument.name === 'props'
+								const hasPropsSpread = openingNode.attributes.some(attribute => t.isJSXSpreadAttribute(attribute)
+									&& attribute.argument
+									&& t.isIdentifier(attribute.argument)
+									&& attribute.argument.name === 'props'
 								);
 
 								const hasDynamicChild = elementNode.children.some(child =>
 									t.isJSXExpressionContainer(child)
+									|| ((t.isJSXElement(child) || t.isJSXFragment(child)) && subtreeContainsDynamicExpression(child))
 								);
 
 								if (hasDynamicChild || hasPropsSpread) {
@@ -166,6 +208,12 @@ export default function inlineEditPlugin() {
 							if (!shouldBeDisabledDueToChildren && t.isJSXElement(elementNode) && elementNode.children) {
 								const hasEditableJsxChild = elementNode.children.some(child => {
 									if (t.isJSXElement(child)) {
+										const childName = child.openingElement.name?.name || '';
+										// Inline tags (links, bold, italic, ...) belong to the
+										// parent's editable text, so they must NOT disable it.
+										if (INLINE_EDIT_HTML_TAGS.includes(childName)) {
+											return false;
+										}
 										return checkTagNameEditable(child.openingElement, EDITABLE_JSX_TAGS);
 									}
 
@@ -193,6 +241,7 @@ export default function inlineEditPlugin() {
 								let hasTextContent = false;
 								let hasNonEditableJsxChild = false;
 								let hasNonSelfClosingChild = false;
+								let hasInlineTagChild = false;
 
 								for (const child of elementNode.children) {
 									if (t.isJSXText(child)) {
@@ -201,11 +250,17 @@ export default function inlineEditPlugin() {
 									}
 								if (t.isJSXElement(child)) {
 									const childNode = child.openingElement;
+									const childName = childNode.name?.name || '';
 									if (childNode.selfClosing) {
-										const childName = childNode.name?.name || '';
-										if (!/^[A-Z]/.test(childName) && !checkTagNameEditable(childNode, EDITABLE_JSX_TAGS)) {
+										if (!/^[A-Z]/.test(childName) && !checkTagNameEditable(childNode, EDITABLE_JSX_TAGS) && !INLINE_EDIT_HTML_TAGS.includes(childName)) {
 											hasNonEditableJsxChild = true;
 										}
+										continue;
+									}
+									// Inline tags (a, strong, em, b, i, u, span) are editable text
+									// content kept inside the parent's contenteditable region.
+									if (INLINE_EDIT_HTML_TAGS.includes(childName)) {
+										hasInlineTagChild = true;
 										continue;
 									}
 									hasNonSelfClosingChild = true;
@@ -215,7 +270,7 @@ export default function inlineEditPlugin() {
 								}
 								}
 
-								if (!hasTextContent && !hasNonSelfClosingChild) return;
+								if (!hasTextContent && !hasNonSelfClosingChild && !hasInlineTagChild) return;
 
 								if (hasNonEditableJsxChild) {
 									const disabledAttribute = t.jsxAttribute(
@@ -233,7 +288,7 @@ export default function inlineEditPlugin() {
 							while (currentAncestorCandidatePath) {
 								const ancestorJsxElementPath = currentAncestorCandidatePath.isJSXElement()
 									? currentAncestorCandidatePath
-									: currentAncestorCandidatePath.findParent(p => p.isJSXElement());
+									: currentAncestorCandidatePath.findParent(candidatePath => candidatePath.isJSXElement());
 
 								if (!ancestorJsxElementPath) {
 									break;
@@ -256,6 +311,19 @@ export default function inlineEditPlugin() {
 
 							openingNode.attributes.push(idAttribute);
 							attributesAdded++;
+
+							// For editable links with a static URL, expose which
+							// attribute (`href`/`to`) the inline editor should write
+							// back when the link target is changed in place.
+							const urlAttributeName = detectUrlAttribute(openingNode);
+							if (urlAttributeName) {
+								openingNode.attributes.push(
+									t.jsxAttribute(
+										t.jsxIdentifier('data-edit-url-attr'),
+										t.stringLiteral(urlAttributeName)
+									)
+								);
+							}
 						}
 					}
 				});
@@ -273,123 +341,52 @@ export default function inlineEditPlugin() {
 		},
 
 
-		// Updates source code based on the changes received from the client
+		// Persists a batch of draft edits to source when the user saves.
 		configureServer(server) {
-			server.middlewares.use('/api/apply-edit', async (req, res, next) => {
-				if (req.method !== 'POST') return next();
+			server.middlewares.use('/api/draft-save', async (request, response, next) => {
+				if (request.method !== 'POST') return next();
 
 				let body = '';
-				req.on('data', chunk => { body += chunk.toString(); });
+				request.on('data', chunk => { body += chunk.toString(); });
 
-				req.on('end', async () => {
-					let absoluteFilePath = '';
+				request.on('end', async () => {
 					try {
-						const { editId, newFullText } = JSON.parse(body);
+						const { draft } = JSON.parse(body);
 
-						if (!editId || typeof newFullText === 'undefined') {
-								res.writeHead(400, { 'Content-Type': 'application/json' });
-							return res.end(JSON.stringify({ error: 'Missing editId or newFullText' }));
-							}
-
-							const parsedId = parseEditId(editId);
-							if (!parsedId) {
-								res.writeHead(400, { 'Content-Type': 'application/json' });
-								return res.end(JSON.stringify({ error: 'Invalid editId format (filePath:line:column)' }));
-							}
-
-						const { filePath, line, column } = parsedId;
-
-						// Validate file path
-						const validation = validateFilePath(filePath);
-						if (!validation.isValid) {
-							res.writeHead(400, { 'Content-Type': 'application/json' });
-							return res.end(JSON.stringify({ error: validation.error }));
-						}
-						absoluteFilePath = validation.absolutePath;
-
-						// Parse AST
-						const originalContent = fs.readFileSync(absoluteFilePath, 'utf-8');
-						const babelAst = parseFileToAST(absoluteFilePath);
-
-						// Find target node (note: apply-edit uses column+1)
-						const targetNodePath = findJSXElementAtPosition(babelAst, line, column + 1);
-
-						if (!targetNodePath) {
-							res.writeHead(404, { 'Content-Type': 'application/json' });
-							return res.end(JSON.stringify({ error: 'Target node not found by line/column', editId }));
+						if (!draft || typeof draft !== 'object') {
+							response.writeHead(400, { 'Content-Type': 'application/json' });
+							return response.end(JSON.stringify({ error: 'Missing or invalid draft object' }));
 						}
 
-						const targetOpeningElement = targetNodePath.node;
-						const parentElementNode = targetNodePath.parentPath?.node;
+						const { editsByFile, results } = groupEditsByFile(draft);
 
-						const isImageElement = targetOpeningElement.name && targetOpeningElement.name.name === 'img';
+						for (const [absoluteFilePath, fileEdits] of editsByFile) {
+							const originalContent = fs.readFileSync(absoluteFilePath, 'utf-8');
+							const babelAst = parseFileToAST(absoluteFilePath);
+							let fileModified = false;
 
-						let beforeCode = '';
-						let afterCode = '';
-						let modified = false;
-
-						if (isImageElement) {
-							// Handle image src attribute update
-							beforeCode = generateCode(targetOpeningElement);
-
-							const srcAttr = targetOpeningElement.attributes.find(attr =>
-								t.isJSXAttribute(attr) && attr.name && attr.name.name === 'src'
-							);
-
-							if (srcAttr && t.isStringLiteral(srcAttr.value)) {
-								srcAttr.value = t.stringLiteral(newFullText);
-								modified = true;
-								afterCode = generateCode(targetOpeningElement);
-							}
-						} else {
-							if (parentElementNode && t.isJSXElement(parentElementNode)) {
-								beforeCode = generateCode(parentElementNode);
-
-								let textReplaced = false;
-								parentElementNode.children = parentElementNode.children.reduce((acc, child) => {
-									if (t.isJSXText(child)) {
-										if (!textReplaced && child.value.trim().length > 0 && newFullText && newFullText.trim() !== '') {
-											const leading = child.value.match(/^(\s*)/)[0];
-											const trailing = child.value.match(/(\s*)$/)[0];
-											acc.push(t.jsxText(leading + newFullText.trim() + trailing));
-											textReplaced = true;
-										} else {
-											acc.push(child);
-										}
-										return acc;
-									}
-									acc.push(child);
-									return acc;
-								}, []);
-								if (!textReplaced && newFullText && newFullText.trim() !== '') {
-									parentElementNode.children.push(t.jsxText(newFullText));
+							for (const { draftKey, edit, parsedId } of fileEdits) {
+								const { modified, error } = applyElementEdit(babelAst, edit, parsedId);
+								if (!modified) {
+									results.push({ draftKey, success: false, error });
+									continue;
 								}
+								fileModified = true;
+							}
 
-								modified = true;
-								afterCode = generateCode(parentElementNode);
+							if (fileModified) {
+								// Suppress the HMR reload this write triggers so the pending save fetch survives.
+								recentDraftWrites.set(path.resolve(absoluteFilePath), Date.now() + DRAFT_WRITE_HMR_SUPPRESS_MILLISECONDS);
+								results.push(writeBackEdits(babelAst, absoluteFilePath, originalContent));
 							}
 						}
 
-						if (!modified) {
-							res.writeHead(409, { 'Content-Type': 'application/json' });
-							return res.end(JSON.stringify({ error: 'Could not apply changes to AST.' }));
-						}
-
-						const webRelativeFilePath = path.relative(VITE_PROJECT_ROOT, absoluteFilePath).split(path.sep).join('/');
-						const output = generateSourceWithMap(babelAst, webRelativeFilePath, originalContent);
-						const newContent = output.code;
-
-						res.writeHead(200, { 'Content-Type': 'application/json' });
-						res.end(JSON.stringify({
-							success: true,
-							newFileContent: newContent,
-							beforeCode,
-							afterCode,
-						}));
-
+						response.writeHead(200, { 'Content-Type': 'application/json' });
+						response.end(JSON.stringify({ success: true, results }));
 					} catch (error) {
-						res.writeHead(500, { 'Content-Type': 'application/json' });
-						res.end(JSON.stringify({ error: 'Internal server error during edit application.' }));
+						console.error('[vite][visual-editor] Error in draft-save:', error);
+						response.writeHead(500, { 'Content-Type': 'application/json' });
+						response.end(JSON.stringify({ error: 'Internal server error during draft save.' }));
 					}
 				});
 			});
