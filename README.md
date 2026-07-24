@@ -83,10 +83,10 @@ Workers Builds Git integration.
 > pinned wrangler `4.114.0`; the Workers Builds `npx` path was seen fetching an
 > older wrangler that fails to parse `vite.config.js`.
 
-SPA routing is handled natively by `wrangler.jsonc`
-(`assets.not_found_handling: "single-page-application"`, output `./dist`); security
-headers by `public/_headers`. (No `_redirects` file — it would conflict with the
-native SPA fallback.) Full instructions, env vars, token permissions, and
+SPA routing is handled by a minimal Worker (`worker/index.js`) with static
+assets from `./dist`: client-side routes serve `index.html` (200) while missing
+file-like paths return a genuine 404; security headers by `public/_headers`.
+(No `_redirects` file.) Full instructions, env vars, token permissions, and
 verification steps: **`docs/CLOUDFLARE_DEPLOYMENT.md`**.
 
 ## Supabase configuration

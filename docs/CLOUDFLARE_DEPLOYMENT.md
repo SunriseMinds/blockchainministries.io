@@ -8,28 +8,33 @@ the **frontend only** — Supabase and Firebase remain the backend for now.
 
 ## How it works
 - The build runs `npm run build`, producing `./dist`.
-- `wrangler.jsonc` (repo root) declares a **static-assets-only Worker** (no fetch
-  handler) that serves `./dist`.
-- SPA routing is handled natively by `assets.not_found_handling:
-  "single-page-application"` — no `_redirects` file (removed to avoid a conflicting
-  fallback that would also mask missing-asset 404s).
+- `wrangler.jsonc` (repo root) serves `./dist` as static assets and uses a **minimal
+  Worker** (`worker/index.js`) for routing — no `_redirects` file.
+- Matching static assets are served directly by Cloudflare; only non-matching
+  requests reach the Worker, which then:
+  - returns a **genuine 404** for a missing file-like path (last segment contains
+    `.`, e.g. `/assets/app-abc123.js`) so broken asset references are not hidden, and
+  - serves **index.html (200)** for any other path (a client-side React Router route),
+    so deep links and refreshes work.
+- The plain `not_found_handling: "single-page-application"` mode was **not** used: it
+  masks *every* miss (including missing `.js`/`.css`) with index.html (HTTP 200),
+  which fails the "missing assets must 404" requirement. The Worker is the minimal
+  technically-required way to get SPA routing **and** real 404s.
 
 ## `wrangler.jsonc` (already in the repo)
 ```jsonc
 {
   "name": "blockchainministries-io",
   "compatibility_date": "2025-01-01",
+  "main": "worker/index.js",
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS"
   }
 }
 ```
-- **No `main`/Worker script** — a fetch handler is only added later when server-side
-  APIs (D1/R2/Workers) are introduced.
-- `single-page-application` mode rewrites only extension-less navigation requests to
-  `index.html` (200); a request for a real-looking asset path that is missing still
-  returns a genuine 404, so broken asset references are not hidden.
+- `worker/index.js` contains **routing only** (no application/server logic). Backend
+  APIs (D1/R2/Workers) remain a separate, later phase.
 
 ---
 
@@ -132,7 +137,7 @@ Path:                    /
 Production branch:       main   (merge feature branch first)
 Node version:            22     (set NODE_VERSION=22 env var; .nvmrc not auto-read)
 Output directory:        ./dist  (via wrangler.jsonc assets.directory)
-SPA fallback:            wrangler.jsonc not_found_handling=single-page-application
+SPA fallback:            worker/index.js (routes -> index.html; missing files -> 404)
 Headers:                 public/_headers
 Custom domain:           attach later, after approval
 ```
