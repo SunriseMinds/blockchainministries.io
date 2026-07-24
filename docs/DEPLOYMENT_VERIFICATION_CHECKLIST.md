@@ -59,18 +59,20 @@ deploy. **Backend migration not started.** Supabase + Firebase remain live.
 ## E. Cloudflare deployment state (from Cloudflare API via MCP + timestamps)
 | Item | Finding |
 |---|---|
-| Worker exists | ✅ `blockchainministries-io` (id `07da37b1…`), created `2026-07-23T21:39:31Z`, modified `2026-07-23T21:57:35Z` |
-| Worker type | assets-oriented (no fetchable script returned by the API before this change) |
-| **Production Worker version id** | ❓ not exposed by available MCP tools — check Workers → Deployments in the dashboard |
-| **Feature-branch preview version** | ❓ not confirmed — no successful preview build of `317abd4` verified from here |
-| **Commit serving apex `blockchainministries.io`** | ❓ cannot determine — the live domain is network-blocked from this environment (403 at the agent proxy) |
-| **Commit serving `www.blockchainministries.io`** | ❓ same — cannot fetch from here |
-| Domains serving latest feature code vs older | ❓ cannot verify from here; the last dashboard deploy log **failed at the deploy step** (wrong wrangler version), so the current commit is very likely **not** yet live |
+| Worker exists | ✅ `blockchainministries-io` (script id tag `07da37b1c052414d9d0c5288a8d3d294`), created `2026-07-23T21:39:31Z` |
+| **Latest deploy** | ✅ **modified `2026-07-24T05:03:57Z`** — a deploy succeeded after the earlier failed one |
+| **Deployed code = latest commit?** | ✅ **YES.** The Worker's live source returned by the Cloudflare API is exactly `worker/index.js` from HEAD (the fixed `env.ASSETS.fetch(new URL("/", …))` variant, commit `317abd4`; `4c014ac` is docs-only so functionally identical). The prior deploy was assets-only/null — so the SPA-Worker code is now live on the edge. |
+| **Production Worker version id** | ❓ specific version/deployment id not exposed by available MCP tools — see Workers → Deployments in the dashboard |
+| **workers.dev preview URL loads** | ❓ cannot verify — **all outbound HTTPS from this environment returns `000` (proxy blocks every external host)**, incl. `*.workers.dev` |
+| **Commit serving apex `blockchainministries.io`** | ❓ cannot fetch from here (outbound blocked / 403 at proxy) |
+| **Commit serving `www.blockchainministries.io`** | ❓ same |
+| Custom domain / SSL / DNS / production routing | ❓ **cannot verify or configure from here** — no DNS/zone/route/custom-domain tools in the available Cloudflare MCP set, and outbound is blocked. Dashboard/DNS operation. |
 
-> **Important:** commit `317abd4` (with the SPA Worker and the corrected deploy
-> command) has **not** been confirmed deployed. Re-run the Workers Build with
-> **Deploy command = `npm run deploy`** to deploy it, then re-verify items marked ⚠️
-> on the real `*.workers.dev` preview URL.
+> **Confirmed:** the latest SPA-Worker code is deployed to the production
+> `blockchainministries-io` Worker (edge). **Unconfirmable from this environment:**
+> whether the `*.workers.dev` URL and the custom domains serve it, and SSL/DNS/route
+> status — these need the Cloudflare dashboard/DNS and outbound network this agent
+> environment does not have.
 
 ## F. Findings
 - **F-1 (recommendation, not yet applied):** `index.html` loads Supabase from
