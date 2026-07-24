@@ -81,8 +81,14 @@ function extractRoutes(appJsxPath) {
   }
 }
 
+const SUPPORTED_EXTENSIONS = new Set(['.jsx', '.js', '.tsx', '.ts']);
+
 function findReactFiles(dir) {
-  return fs.readdirSync(dir).map(item => path.join(dir, item));
+  // Only top-level page files: skip subdirectories (e.g. Contact/, Donate/) and
+  // unsupported entries so we never attempt to read a directory as a file (EISDIR).
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter(entry => entry.isFile() && SUPPORTED_EXTENSIONS.has(path.extname(entry.name)))
+    .map(entry => path.join(dir, entry.name));
 }
 
 function extractHelmetData(content, filePath, routes) {
@@ -136,6 +142,10 @@ function ensureDirectoryExists(dirPath) {
 
 function processPageFile(filePath, routes) {
   try {
+    // Skip directories and unsupported entries cleanly (never read a dir as a file).
+    if (!fs.statSync(filePath).isFile() || !SUPPORTED_EXTENSIONS.has(path.extname(filePath))) {
+      return null;
+    }
     const content = fs.readFileSync(filePath, 'utf8');
     return extractHelmetData(content, filePath, routes);
   } catch (error) {
