@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Blockchain Ministries">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B1426"/>
+      <stop offset="0.55" stop-color="#1E3A8A"/>
+      <stop offset="1" stop-color="#4C1D95"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFD700"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- radiant ring -->
+  <circle cx="32" cy="27" r="12" fill="none" stroke="url(#gold)" stroke-width="2.5" opacity="0.9"/>
+  <!-- ankh loop -->
+  <ellipse cx="32" cy="22" rx="5.5" ry="7" fill="none" stroke="url(#gold)" stroke-width="3"/>
+  <!-- ankh stem -->
+  <rect x="30" y="29" width="4" height="22" rx="2" fill="url(#gold)"/>
+  <!-- ankh crossbar -->
+  <rect x="22" y="34" width="20" height="4" rx="2" fill="url(#gold)"/>
+</svg>

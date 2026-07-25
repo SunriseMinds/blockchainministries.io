@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Do not index authenticated / operational areas
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /update-password
+
+Sitemap: https://blockchainministries.io/sitemap.xml

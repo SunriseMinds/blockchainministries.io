@@ -1,0 +1,13 @@
+# Conservative security headers for Cloudflare Workers static assets.
+# Intentionally NO Content-Security-Policy here: a strict CSP would risk
+# breaking Supabase, Google Fonts, Stripe/PayPal, XRPL/Xaman links, and
+# inline QR generation. A tested CSP can be introduced later.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+
+# Long-lived caching for Vite's content-hashed build assets.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

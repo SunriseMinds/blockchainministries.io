@@ -1,0 +1,23 @@
+{
+  // Cloudflare Workers static-assets configuration for the Blockchain Ministries
+  // React 18 + Vite single-page app. Deploys the pre-built ./dist directory as
+  // static assets through the Workers Builds Git integration.
+  //
+  // A minimal Worker (worker/index.js) provides SPA routing that ALSO returns a
+  // genuine 404 for missing file-like requests (e.g. /assets/app-abc123.js) rather
+  // than masking them with index.html. Cloudflare serves matching static assets
+  // directly and only invokes the Worker for requests that don't match an asset.
+  //
+  // Secrets (Stripe secret, SMTP, XRPL seed, Supabase service role, tokens) must
+  // NEVER live here. Only public build-time VITE_* values belong in the build env.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blockchainministries-io",
+  "compatibility_date": "2025-01-01",
+  "main": "worker/index.js",
+  "assets": {
+    // Vite build output.
+    "directory": "./dist",
+    // Binding used by worker/index.js to serve index.html for client-side routes.
+    "binding": "ASSETS"
+  }
+}

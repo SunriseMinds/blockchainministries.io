@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Blockchain Ministries">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B1426"/>
+      <stop offset="0.55" stop-color="#1E3A8A"/>
+      <stop offset="1" stop-color="#4C1D95"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFD700"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="600" cy="300" r="180" fill="none" stroke="url(#gold)" stroke-width="3" opacity="0.25"/>
+  <circle cx="600" cy="300" r="120" fill="none" stroke="url(#gold)" stroke-width="2" opacity="0.2"/>
+  <!-- ankh -->
+  <g transform="translate(150,140)">
+    <ellipse cx="0" cy="0" rx="34" ry="44" fill="none" stroke="url(#gold)" stroke-width="14"/>
+    <rect x="-8" y="40" width="16" height="150" rx="8" fill="url(#gold)"/>
+    <rect x="-52" y="70" width="104" height="16" rx="8" fill="url(#gold)"/>
+  </g>
+  <text x="150" y="400" font-family="Georgia, 'Times New Roman', serif" font-size="76" font-weight="700" fill="#FDE68A" letter-spacing="2">Blockchain Ministries</text>
+  <text x="152" y="470" font-family="Georgia, 'Times New Roman', serif" font-size="34" fill="#93C5FD" font-style="italic">A Sovereign Ecclesiastical Trust</text>
+  <text x="152" y="545" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#FCD34D">blockchainministries.io</text>
+</svg>

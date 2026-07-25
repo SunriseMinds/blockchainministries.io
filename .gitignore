@@ -7,6 +7,14 @@ coverage/
 .env.*
 !.env.example
 
+# Cloudflare Workers / Wrangler local secrets & state
+.dev.vars
+.dev.vars.*
+.wrangler/
+
+# Build-generated (produced by tools/generate-llms.js during `npm run build`)
+public/llms.txt
+
 .vscode/
 .claude/
 .DS_Store

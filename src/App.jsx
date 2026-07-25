@@ -21,6 +21,8 @@ const Ministers = lazy(() => import('@/pages/Ministers'));
 const MinisterProfile = lazy(() => import('@/pages/MinisterProfile'));
 const Token = lazy(() => import('@/pages/Token'));
 const Verify = lazy(() => import('@/pages/Verify'));
+const Privacy = lazy(() => import('@/pages/Privacy'));
+const Terms = lazy(() => import('@/pages/Terms'));
 
 // Auth Pages
 const Login = lazy(() => import('@/pages/auth/Login'));
@@ -53,6 +55,8 @@ function App() {
           <Route path="ministers" element={<Ministers />} />
           <Route path="minister/:ministerId" element={<MinisterProfile />} />
           <Route path="verify/:slug" element={<Verify />} />
+          <Route path="privacy" element={<Privacy />} />
+          <Route path="terms" element={<Terms />} />
           
           {/* Auth Routes */}
           <Route path="login" element={<Login />} />
