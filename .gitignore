@@ -21,3 +21,6 @@ public/llms.txt
 *.log
 # local wrangler test state
 .wrangler-test/
+
+# migration working state (contains member PII — never commit)
+.migration/
