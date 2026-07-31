@@ -19,5 +19,35 @@
     "directory": "./dist",
     // Binding used by worker/index.js to serve index.html for client-side routes.
     "binding": "ASSETS"
-  }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Parallel Cloudflare backend bindings (Phase 2D).
+  //
+  // These make the resources REACHABLE, they do not switch anything on. Every
+  // feature flag (USE_NEW_API / USE_D1 / USE_R2 / USE_WORKER_AUTH /
+  // USE_TURNSTILE) is deliberately ABSENT here, and an absent variable is
+  // false — so /api/* still returns 503 and the SPA still talks to Supabase.
+  // Flags are enabled per-environment in the dashboard, one at a time.
+  // ---------------------------------------------------------------------------
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "blockchain-ministries-db",
+      "database_id": "1aebe562-6eff-4910-b5c0-450bcc1ea19d",
+      // Used by `wrangler dev` and preview deployments.
+      "preview_database_id": "88e30d07-1939-495a-8cf4-3088a2e8ef81"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "PUBLIC_FILES", "bucket_name": "bm-public" },
+    { "binding": "PROTECTED_FILES", "bucket_name": "bm-protected" }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "RATE_LIMIT",
+      "id": "572ec235d6c94962aa265295879d837c",
+      "preview_id": "c9e5125bf97f47d49c7bf53e1644ef98"
+    }
+  ]
 }
