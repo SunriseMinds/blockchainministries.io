@@ -57,7 +57,8 @@ export function errorResponse(err) {
       { status: err.status },
     );
   }
-  // Never leak internal messages or stack traces to the client.
+  // Log server-side for diagnosis, but never leak internals to the client.
+  console.error('[api] unhandled error:', err?.stack || err?.message || String(err));
   return json({ error: { code: 'internal_error', message: 'Internal error' } }, { status: 500 });
 }
 

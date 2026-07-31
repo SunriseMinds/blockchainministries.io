@@ -19,3 +19,5 @@ public/llms.txt
 .claude/
 .DS_Store
 *.log
+# local wrangler test state
+.wrangler-test/

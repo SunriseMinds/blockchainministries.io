@@ -6,14 +6,22 @@
  */
 import { HttpError, errorResponse, notFound, json } from '../lib/http.js';
 
+/**
+ * `:name`  matches one path segment.
+ * `:name+` matches the rest of the path, slashes included (e.g. R2 object
+ *          keys such as `credentials/abc.pdf`). The `+` is not part of the
+ *          parameter name.
+ */
 function compile(pattern) {
   const names = [];
   const source = pattern
     .split('/')
     .map((seg) => {
       if (!seg.startsWith(':')) return seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      names.push(seg.slice(1));
-      return '([^/]+)';
+      const raw = seg.slice(1);
+      const greedy = raw.endsWith('+');
+      names.push(greedy ? raw.slice(0, -1) : raw);
+      return greedy ? '(.+)' : '([^/]+)';
     })
     .join('/');
   return { re: new RegExp(`^${source}$`), names };

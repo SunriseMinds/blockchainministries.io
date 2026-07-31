@@ -1,12 +1,18 @@
 /**
  * API entry point. Builds the router and dispatches /api/* requests.
  *
- * Route groups are mounted here. Everything is gated by USE_NEW_API, which is
- * false unless explicitly enabled, so production behaviour is unchanged.
+ * Everything is gated by USE_NEW_API, which is false unless explicitly
+ * enabled, so production behaviour is unchanged and the SPA keeps talking to
+ * Supabase until cutover.
  */
 import { Router } from './router.js';
 import { json, errorResponse, unavailable } from '../lib/http.js';
 import { describeFlags } from '../config/flags.js';
+import { requireSameOrigin, loadSession } from '../middleware/auth.js';
+import { mount as mountAuth } from './auth.js';
+import { mount as mountPublic } from './public.js';
+import { mount as mountAdmin } from './admin.js';
+import { mount as mountFiles } from './files.js';
 
 let cached = null;
 
@@ -21,11 +27,15 @@ function buildRouter() {
     time: new Date().toISOString(),
   }));
 
+  mountAuth(r);
+  mountPublic(r);
+  mountAdmin(r);
+  mountFiles(r);
   return r;
 }
 
 /**
- * @param {object} ctx { request, env, url, flags, ctx: ExecutionContext }
+ * @param {object} ctx { request, env, url, flags, executionCtx, waitUntil }
  * @returns {Promise<Response>}
  */
 export async function handleApi(ctx) {
@@ -34,5 +44,16 @@ export async function handleApi(ctx) {
     return errorResponse(unavailable('API is not enabled in this environment'));
   }
   if (!cached) cached = buildRouter();
+
+  try {
+    // CSRF guard on state-changing requests, then best-effort session load so
+    // handlers and audit logging can see the caller without each re-doing it.
+    const early = await requireSameOrigin(ctx);
+    if (early instanceof Response) return early;
+    await loadSession(ctx);
+  } catch (err) {
+    return errorResponse(err);
+  }
+
   return cached.handle(ctx);
 }
