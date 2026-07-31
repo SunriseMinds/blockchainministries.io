@@ -11,7 +11,7 @@ import { repos, fromJsonText } from '../db/repositories.js';
 import * as v from '../lib/validate.js';
 import { enforce } from '../lib/ratelimit.js';
 import { audit, ACTIONS } from '../lib/audit.js';
-import { send, templates } from '../lib/email.js';
+import { send, templates, notifyAdmins } from '../lib/email.js';
 import { requireAuth, requireVerifiedEmail } from '../middleware/auth.js';
 import { requireTurnstile } from '../middleware/turnstile.js';
 import * as stripe from '../lib/stripe.js';
@@ -62,6 +62,10 @@ export function mount(r) {
       message: v.str(body, 'message', { max: 5000 }),
       inquiryType: v.str(body, 'inquiry_type', { required: false, max: 100 }),
       ip,
+    });
+    await notifyAdmins(ctx, {
+      subject: 'New contact inquiry — Blockchain Ministries',
+      text: `A new contact inquiry was submitted (id ${id}). View it in the admin dashboard.`,
     });
     await audit(ctx, ACTIONS.CONTACT_SUBMIT, { entityType: 'contact_inquiry', entityId: id });
     return json({ ok: true, id }, { status: 201 });
@@ -224,6 +228,41 @@ export function mount(r) {
   });
 
   /**
+   * Hosted Stripe Checkout for one-off donations and recurring membership.
+   * `mode=subscription` requires a real Stripe Price id — the ids currently in
+   * the frontend (price_supporter_tier, …) are placeholders that exist in no
+   * Stripe account, so they are rejected rather than silently failing later.
+   */
+  r.post('/api/donations/stripe/checkout', [requireTurnstile], async (ctx) => {
+    await enforce(ctx, 'payment', clientIp(ctx.request));
+    const body = ctx.body;
+    const mode = v.oneOf(body, 'mode', ['payment', 'subscription'], { required: false }) || 'payment';
+    const origin = ctx.env.SITE_URL || ctx.url.origin;
+
+    let items;
+    if (mode === 'subscription') {
+      const price = v.str(body, 'price_id', { max: 120 });
+      if (stripe.PLACEHOLDER_PRICE_IDS.includes(price)) {
+        throw badRequest('This membership tier is not configured yet. Real Stripe Price ids are required.');
+      }
+      items = [{ price, quantity: 1 }];
+    } else {
+      items = [{ amountCents: v.int(body, 'amount_cents', { min: 100, max: 10_000_000 }), name: 'Donation' }];
+    }
+
+    const session = await stripe.createCheckoutSession(ctx, {
+      mode,
+      items,
+      successUrl: `${origin}/donate?checkout=success`,
+      cancelUrl: `${origin}/donate?checkout=cancelled`,
+      customerEmail: ctx.session?.email,
+      metadata: { user_id: ctx.session?.user_id ?? '' },
+      idempotencyKey: crypto.randomUUID(),
+    });
+    return json({ id: session.id, url: session.url }, { status: 201 });
+  });
+
+  /**
    * Stripe webhook. Signature-verified over the RAW body; must never be
    * behind Turnstile or session auth.
    */
@@ -252,6 +291,12 @@ export function mount(r) {
       email: v.email(body),
       topic: v.str(body, 'topic', { required: false, max: 500 }),
       requestedAt: v.str(body, 'requested_at', { required: false, max: 40 }),
+    });
+    const topic = v.str(body, 'topic', { required: false, max: 500 });
+    await send(ctx, { to: v.email(body), ...templates.consultationRequested(topic) });
+    await notifyAdmins(ctx, {
+      subject: 'New consultation request — Blockchain Ministries',
+      text: `A new consultation request was submitted (id ${id}).`,
     });
     await audit(ctx, ACTIONS.CONSULTATION_REQUEST, { entityType: 'consultation', entityId: id });
     return json({ ok: true, id }, { status: 201 });

@@ -27,7 +27,12 @@
     "USE_TURNSTILE": "false",
     "USE_NEW_API": "true",
     "SITE_URL": "http://127.0.0.1:8788",
-    "SESSION_PEPPER": "local-test-only-not-a-secret"
+    "SESSION_PEPPER": "local-test-only-not-a-secret",
+    "XRPL_NETWORK": "testnet"
+    // XRPL_SEED is intentionally NOT stored here. No seed — not even a public
+    // test seed — belongs in a committed file. To exercise the signer locally:
+    //   XRPL_SEED=<testnet seed> XRPL_SIGNING_ENABLED=true \
+    //     wrangler dev --local --config wrangler.test.jsonc
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "blockchain-ministries-db", "database_id": "local-test" }

@@ -67,6 +67,37 @@ export function createPaymentIntent(ctx, { amountCents, currency = 'usd', metada
 }
 
 /**
+ * Create a hosted Checkout Session.
+ *
+ * @param {'payment'|'subscription'} mode
+ * @param {Array<{price?:string, amountCents?:number, quantity?:number, name?:string}>} items
+ */
+export function createCheckoutSession(ctx, { mode = 'payment', items, successUrl, cancelUrl, customerEmail, metadata = {}, idempotencyKey }) {
+  const params = {
+    mode,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    metadata,
+  };
+  if (customerEmail) params.customer_email = customerEmail;
+
+  items.forEach((item, i) => {
+    if (item.price) {
+      // Pre-created Price object (required for subscriptions).
+      params[`line_items[${i}][price]`] = item.price;
+    } else {
+      // Ad-hoc amount (one-off donations of an arbitrary size).
+      params[`line_items[${i}][price_data][currency]`] = item.currency || 'usd';
+      params[`line_items[${i}][price_data][unit_amount]`] = item.amountCents;
+      params[`line_items[${i}][price_data][product_data][name]`] = item.name || 'Donation';
+    }
+    params[`line_items[${i}][quantity]`] = item.quantity || 1;
+  });
+
+  return call(ctx, '/checkout/sessions', params, { idempotencyKey });
+}
+
+/**
  * Verify a Stripe webhook signature (t=…,v1=… in the Stripe-Signature header).
  * Uses HMAC-SHA256 over `${timestamp}.${rawBody}` and a constant-time compare.
  *
@@ -125,6 +156,32 @@ export function donationFromEvent(event) {
         receiptUrl: null,
         userId: obj.metadata?.user_id ?? null,
       };
+    case 'checkout.session.completed':
+      // One-off checkout. Subscriptions are recorded via invoice.paid instead,
+      // so each billing period produces its own donation row.
+      if (obj.mode === 'subscription') return null;
+      return {
+        provider: 'stripe',
+        providerId: obj.payment_intent || obj.id,
+        amountCents: obj.amount_total ?? 0,
+        currency: obj.currency || 'usd',
+        status: obj.payment_status === 'paid' ? 'succeeded' : (obj.payment_status || 'pending'),
+        receiptUrl: null,
+        userId: obj.metadata?.user_id ?? null,
+      };
+
+    case 'invoice.paid':
+      // Recurring membership payment.
+      return {
+        provider: 'stripe',
+        providerId: obj.id,
+        amountCents: obj.amount_paid ?? 0,
+        currency: obj.currency || 'usd',
+        status: 'succeeded',
+        receiptUrl: obj.hosted_invoice_url ?? null,
+        userId: obj.subscription_details?.metadata?.user_id ?? obj.metadata?.user_id ?? null,
+      };
+
     default:
       return null; // event types we deliberately ignore
   }

@@ -71,6 +71,33 @@ export function mount(r) {
     return json({ items: await repos(db).ordinations.listByStatus(status, val.pagination(ctx.url)) });
   });
 
+  /**
+   * XRPL signer diagnostics. Reports the derived signing address and gate
+   * state so an operator can confirm the correct wallet is configured.
+   * NEVER returns the seed, and performs no transaction.
+   */
+  r.get('/api/admin/xrpl/status', [requireAdmin], async (ctx) => {
+    const signer = await import('../lib/xrpl-signer.js');
+    const enabled = signer.signingEnabled(ctx.env);
+    const out = {
+      signing_enabled: enabled,
+      network: signer.network(ctx.env),
+      rpc: signer.rpcUrl(ctx.env),
+      mainnet_allowed: ctx.env.XRPL_ALLOW_MAINNET === 'true',
+      issuer_configured: Boolean(ctx.env.XRPL_ISSUER_ADDRESS),
+    };
+    if (enabled) {
+      // Derivation is pure computation — proves the keypair libraries run
+      // here without contacting the network.
+      try {
+        out.signer_address = signer.signerAddress(ctx.env);
+      } catch (e) {
+        out.signer_error = e?.message?.slice(0, 200);
+      }
+    }
+    return json(out);
+  });
+
   /* ------------------------------------------------ membership decisions -- */
   r.post('/api/admin/memberships/:id/approve', [requireAdmin], async (ctx) => {
     const db = requireDb(ctx);
@@ -100,8 +127,14 @@ export function mount(r) {
 
   r.post('/api/admin/memberships/:id/reject', [requireAdmin], async (ctx) => {
     const db = requireDb(ctx);
-    const ok = await repos(db).memberships.reject(ctx.params.id, { approvedBy: ctx.session.user_id });
+    const repo = repos(db);
+    const membership = await repo.memberships.byId(ctx.params.id);
+    const ok = await repo.memberships.reject(ctx.params.id, { approvedBy: ctx.session.user_id });
     if (!ok) throw conflict('Membership is not pending');
+    if (membership) {
+      const user = await repo.users.byId(membership.user_id);
+      if (user) await send(ctx, { to: user.email, ...templates.applicationRejected('membership') });
+    }
     await audit(ctx, ACTIONS.MEMBERSHIP_REJECT, { entityType: 'membership', entityId: ctx.params.id });
     return json({ ok: true });
   });
@@ -123,7 +156,22 @@ export function mount(r) {
     });
     if (!transitioned) throw conflict(`Ordination is already ${ordination.status}`);
 
-    const minting = xrpl.signingAvailable(ctx) ? 'available_but_disabled' : 'not_configured';
+    // Mint only AFTER the transition succeeded. Because the transition changes
+    // 0 rows on a retry, this can never run twice for the same ordination.
+    let minting = { status: 'not_configured' };
+    if (xrpl.signingAvailable(ctx)) {
+      try {
+        const uri = `${ctx.env.SITE_URL || ctx.url.origin}/verify/${verifySlug}`;
+        const res = await xrpl.mintCredentialNft(ctx, { uri });
+        minting = { status: res.accepted ? 'submitted' : 'rejected', hash: res.hash, engine_result: res.engine_result, network: res.network };
+        if (res.hash) await repo.ordinations.approve(ctx.params.id, { approvedBy: ctx.session.user_id, verifySlug, txHash: res.hash });
+      } catch (e) {
+        // A minting failure must not roll back the approval; it is recorded
+        // for follow-up so an operator can retry the mint deliberately.
+        minting = { status: 'error', message: e?.message?.slice(0, 200) };
+        console.error('[xrpl] mint failed', e?.message);
+      }
+    }
 
     const user = await repo.users.byId(ordination.user_id);
     if (user) await send(ctx, { to: user.email, ...templates.applicationApproved('ordination') });
@@ -136,8 +184,14 @@ export function mount(r) {
 
   r.post('/api/admin/ordinations/:id/reject', [requireAdmin], async (ctx) => {
     const db = requireDb(ctx);
-    const ok = await repos(db).ordinations.reject(ctx.params.id, { approvedBy: ctx.session.user_id });
+    const repo = repos(db);
+    const ordination = await repo.ordinations.byId(ctx.params.id);
+    const ok = await repo.ordinations.reject(ctx.params.id, { approvedBy: ctx.session.user_id });
     if (!ok) throw conflict('Ordination is not pending');
+    if (ordination) {
+      const user = await repo.users.byId(ordination.user_id);
+      if (user) await send(ctx, { to: user.email, ...templates.applicationRejected('ordination') });
+    }
     await audit(ctx, ACTIONS.ORDINATION_REJECT, { entityType: 'ordination', entityId: ctx.params.id });
     return json({ ok: true });
   });

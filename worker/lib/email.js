@@ -118,4 +118,25 @@ export const templates = {
     subject: `Your ${kind} has been approved — Blockchain Ministries`,
     text: `Your ${kind} application has been approved. Sign in to your dashboard to view the details.`,
   }),
+  applicationRejected: (kind) => ({
+    subject: `Update on your ${kind} application — Blockchain Ministries`,
+    text: `Thank you for your interest. After review, your ${kind} application was not approved at this time. You are welcome to contact us with any questions.`,
+  }),
+  consultationRequested: (topic) => ({
+    subject: 'Your consultation request was received — Blockchain Ministries',
+    text: `We have received your consultation request${topic ? ` regarding "${topic}"` : ''}. We will contact you to arrange a time.`,
+  }),
+  donationReceipt: (amountCents, currency) => ({
+    subject: 'Thank you for your offering — Blockchain Ministries',
+    text: `We gratefully acknowledge your gift of ${(amountCents / 100).toFixed(2)} ${String(currency).toUpperCase()}. Thank you for supporting the mission.`,
+  }),
 };
+
+/**
+ * Notify the ministry's own inbox (contact form, new applications, new
+ * consultations). Falls back to the public contact address.
+ */
+export async function notifyAdmins(ctx, { subject, text }) {
+  const to = ctx.env.ADMIN_NOTIFY_EMAIL || 'contact@blockchainministries.io';
+  return send(ctx, { to, subject, text });
+}

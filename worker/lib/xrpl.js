@@ -87,29 +87,25 @@ export function explorerTxUrl(ctx, txHash) {
   return `${config(ctx).explorer}/transactions/${encodeURIComponent(txHash)}`;
 }
 
-/* ------------------------------------------------------ signing (DISABLED) -- */
+/* ---------------------------------------------------------------- signing -- */
 /**
- * Placeholder for credential/NFT minting on approval.
+ * Credential NFT minting, delegated to the Worker-compatible signer in
+ * ./xrpl-signer.js (ripple-keypairs + ripple-binary-codec; the `xrpl` package
+ * itself is not Worker-safe).
  *
- * NOT IMPLEMENTED ON PURPOSE. Enabling it requires owner approval plus:
- *   - an XRPL transaction signing library that runs in Workers (the `xrpl`
- *     npm package assumes Node APIs and is not Worker-compatible as-is;
- *     a Worker-safe signer must be selected — OPEN DECISION),
- *   - the XRPL_SEED Worker secret,
- *   - testnet validation before any mainnet transaction,
- *   - the idempotency guarantee described at the top of this file.
+ * Still gated twice: XRPL_SIGNING_ENABLED must be 'true' with a seed present,
+ * and mainnet additionally requires XRPL_ALLOW_MAINNET='true' after testnet
+ * validation. With neither set this remains inert.
  *
- * @throws {HttpError} always, until Phase 2D enables it
+ * IDEMPOTENCY: callers must perform the D1 status transition first (it changes
+ * 0 rows on a retry) and mint only when that transition actually occurred.
  */
-export async function mintCredentialNft() {
-  throw new HttpError(
-    501,
-    'not_implemented',
-    'XRPL minting is not enabled. Production wallet logic has not been migrated.',
-  );
+export async function mintCredentialNft(ctx, { uri, taxon = 0 }) {
+  const signer = await import('./xrpl-signer.js');
+  return signer.mintCredentialNft(ctx.env, { uri, taxon });
 }
 
-/** Whether signing could even be attempted (does not reveal the secret). */
+/** Whether signing could even be attempted (never reveals the secret). */
 export function signingAvailable(ctx) {
   return Boolean(ctx.env.XRPL_SEED) && ctx.env.XRPL_SIGNING_ENABLED === 'true';
 }
