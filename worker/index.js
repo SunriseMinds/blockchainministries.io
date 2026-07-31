@@ -17,7 +17,7 @@
  *     references stay visible. Anything else is a client-side route →
  *     index.html (200) so deep links and refreshes work.
  */
-import { getFlags } from './config/flags.js';
+import { getFlags } from '@reellink/core/flags.js';
 import { handleApi } from './routes/index.js';
 
 export default {

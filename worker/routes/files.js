@@ -6,12 +6,13 @@
  * D1 before streaming, and returns 404 (not 403) on failure so existence is
  * not confirmed to unauthorized callers.
  */
-import { json, notFound, forbidden } from '../lib/http.js';
-import { requireDb } from '../lib/db.js';
+import { json, notFound, forbidden } from '@reellink/core/http.js';
+import { requireDb } from '@reellink/database/d1.js';
 import { repos } from '../db/repositories.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import * as r2 from '../lib/r2.js';
-import { audit, ACTIONS } from '../lib/audit.js';
+import { requireAuth, requireAdmin } from '@reellink/auth/middleware.js';
+import * as r2 from '@reellink/files/r2.js';
+import { audit } from '@reellink/security/audit.js';
+import { ACTIONS } from '../config/actions.js';
 
 /**
  * Does this session own, or otherwise have rights to, this protected key?

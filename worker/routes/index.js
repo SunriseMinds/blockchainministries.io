@@ -5,10 +5,10 @@
  * enabled, so production behaviour is unchanged and the SPA keeps talking to
  * Supabase until cutover.
  */
-import { Router } from './router.js';
-import { json, errorResponse, unavailable } from '../lib/http.js';
-import { describeFlags } from '../config/flags.js';
-import { requireSameOrigin, loadSession } from '../middleware/auth.js';
+import { Router } from '@reellink/api/router.js';
+import { json, errorResponse, unavailable } from '@reellink/core/http.js';
+import { describeFlags } from '@reellink/core/flags.js';
+import { requireSameOrigin, loadSession } from '@reellink/auth/middleware.js';
 import { mount as mountAuth } from './auth.js';
 import { mount as mountPublic } from './public.js';
 import { mount as mountAdmin } from './admin.js';

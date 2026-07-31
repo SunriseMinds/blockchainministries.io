@@ -4,19 +4,20 @@
  * Inert unless USE_WORKER_AUTH is true. Production authentication is still
  * Supabase; nothing here runs until the cutover flag is set.
  */
-import { json, noContent, readJson, unauthorized, forbidden, conflict, clientIp, HttpError } from '../lib/http.js';
-import { requireDb } from '../lib/db.js';
+import { json, noContent, readJson, unauthorized, forbidden, conflict, clientIp, HttpError } from '@reellink/core/http.js';
+import { requireDb } from '@reellink/database/d1.js';
 import { repos } from '../db/repositories.js';
-import * as v from '../lib/validate.js';
-import { hashPassword, verifyPassword, unusablePasswordHash } from '../lib/password.js';
-import { randomToken, sha256Hex } from '../lib/crypto.js';
-import { issueSession, revokeSession, revokeAllSessions } from '../lib/session.js';
-import { buildSessionCookie, clearSessionCookie, getSessionToken, SESSION_TTL_SECONDS } from '../lib/cookies.js';
-import { enforce, reset } from '../lib/ratelimit.js';
-import { audit, ACTIONS } from '../lib/audit.js';
-import { send, templates } from '../lib/email.js';
-import { requireAuth } from '../middleware/auth.js';
-import { requireTurnstile } from '../middleware/turnstile.js';
+import * as v from '@reellink/core/validate.js';
+import { hashPassword, verifyPassword, unusablePasswordHash } from '@reellink/auth/password.js';
+import { randomToken, sha256Hex } from '@reellink/security/crypto.js';
+import { issueSession, revokeSession, revokeAllSessions } from '@reellink/auth/session.js';
+import { buildSessionCookie, clearSessionCookie, getSessionToken, SESSION_TTL_SECONDS } from '@reellink/auth/cookies.js';
+import { enforce, reset } from '@reellink/security/ratelimit.js';
+import { audit } from '@reellink/security/audit.js';
+import { ACTIONS } from '../config/actions.js';
+import { send, templates } from '../email/templates.js';
+import { requireAuth } from '@reellink/auth/middleware.js';
+import { requireTurnstile } from '@reellink/security/turnstile-middleware.js';
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const RESET_TTL_MS = 60 * 60 * 1000; // 60m
@@ -157,7 +158,7 @@ export function mount(r) {
     requireDb(ctx);
     const raw = getSessionToken(ctx.request);
     if (!raw) return json({ authenticated: false });
-    const { resolveSession } = await import('../lib/session.js');
+    const { resolveSession } = await import('@reellink/auth/session.js');
     const session = await resolveSession(ctx.env.DB, raw);
     if (!session) return json({ authenticated: false });
     await repos(ctx.env.DB).sessions.touch(session.session_id);

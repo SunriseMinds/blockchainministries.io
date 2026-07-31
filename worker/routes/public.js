@@ -5,17 +5,18 @@
  * Authorization rule applied throughout: every ownership filter is bound to
  * ctx.session.user_id. A client-supplied user id is never trusted.
  */
-import { json, readJson, clientIp, notFound, conflict, badRequest, HttpError } from '../lib/http.js';
-import { requireDb } from '../lib/db.js';
+import { json, readJson, clientIp, notFound, conflict, badRequest, HttpError } from '@reellink/core/http.js';
+import { requireDb } from '@reellink/database/d1.js';
 import { repos, fromJsonText } from '../db/repositories.js';
-import * as v from '../lib/validate.js';
-import { enforce } from '../lib/ratelimit.js';
-import { audit, ACTIONS } from '../lib/audit.js';
-import { send, templates, notifyAdmins } from '../lib/email.js';
-import { requireAuth, requireVerifiedEmail } from '../middleware/auth.js';
-import { requireTurnstile } from '../middleware/turnstile.js';
-import * as stripe from '../lib/stripe.js';
-import * as xrpl from '../lib/xrpl.js';
+import * as v from '@reellink/core/validate.js';
+import { enforce } from '@reellink/security/ratelimit.js';
+import { audit } from '@reellink/security/audit.js';
+import { ACTIONS } from '../config/actions.js';
+import { send, templates, notifyAdmins } from '../email/templates.js';
+import { requireAuth, requireVerifiedEmail } from '@reellink/auth/middleware.js';
+import { requireTurnstile } from '@reellink/security/turnstile-middleware.js';
+import * as stripe from '@reellink/payments/stripe.js';
+import * as xrpl from '@reellink/xrpl/client.js';
 
 export function mount(r) {
   /* ------------------------------------------------------------ profile -- */

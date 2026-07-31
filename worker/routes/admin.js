@@ -8,15 +8,16 @@
  * This replaces the current arrangement, where the only real control is a
  * client-side role check plus Supabase RLS policies (risks R-03/R-04).
  */
-import { json, notFound, conflict, badRequest } from '../lib/http.js';
-import { requireDb } from '../lib/db.js';
+import { json, notFound, conflict, badRequest } from '@reellink/core/http.js';
+import { requireDb } from '@reellink/database/d1.js';
 import { repos } from '../db/repositories.js';
-import * as val from '../lib/validate.js';
-import { audit, ACTIONS } from '../lib/audit.js';
-import { send, templates } from '../lib/email.js';
-import { requireAdmin } from '../middleware/auth.js';
-import { randomToken } from '../lib/crypto.js';
-import * as xrpl from '../lib/xrpl.js';
+import * as val from '@reellink/core/validate.js';
+import { audit } from '@reellink/security/audit.js';
+import { ACTIONS } from '../config/actions.js';
+import { send, templates } from '../email/templates.js';
+import { requireAdmin } from '@reellink/auth/middleware.js';
+import { randomToken } from '@reellink/security/crypto.js';
+import * as xrpl from '@reellink/xrpl/client.js';
 
 const STATUSES = ['pending', 'approved', 'rejected'];
 
@@ -77,7 +78,7 @@ export function mount(r) {
    * NEVER returns the seed, and performs no transaction.
    */
   r.get('/api/admin/xrpl/status', [requireAdmin], async (ctx) => {
-    const signer = await import('../lib/xrpl-signer.js');
+    const signer = await import('@reellink/xrpl/signer.js');
     const enabled = signer.signingEnabled(ctx.env);
     const out = {
       signing_enabled: enabled,
@@ -113,7 +114,7 @@ export function mount(r) {
     if (!transitioned) throw conflict(`Membership is already ${membership.status}`);
 
     // XRPL minting is intentionally NOT performed: signing has not been
-    // migrated (see worker/lib/xrpl.js). Recorded for follow-up.
+    // migrated (see @reellink/xrpl). Recorded for follow-up.
     const minting = xrpl.signingAvailable(ctx) ? 'available_but_disabled' : 'not_configured';
 
     const user = await repo.users.byId(membership.user_id);
