@@ -117,7 +117,8 @@ export async function signAndSubmit(env, tx) {
 }
 
 /**
- * Mint an NFT representing an ordination credential (NFTokenMint, XLS-20).
+ * Mint an NFT (NFTokenMint, XLS-20). The URI is supplied by the application —
+ * the platform has no opinion on what the token represents.
  *
  * IDEMPOTENCY IS THE CALLER'S RESPONSIBILITY: only call this after a D1 status
  * transition that changed exactly one row.
@@ -125,7 +126,7 @@ export async function signAndSubmit(env, tx) {
  * @param {object} env
  * @param {{uri:string, taxon?:number, transferable?:boolean}} opts
  */
-export async function mintCredentialNft(env, { uri, taxon = 0, transferable = false }) {
+export async function mintNft(env, { uri, taxon = 0, transferable = false }) {
   if (!uri) throw new HttpError(400, 'bad_request', 'NFT uri is required');
   const hexUri = [...new TextEncoder().encode(uri)]
     .map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
@@ -135,7 +136,7 @@ export async function mintCredentialNft(env, { uri, taxon = 0, transferable = fa
     TransactionType: 'NFTokenMint',
     URI: hexUri,
     NFTokenTaxon: taxon,
-    // Flag 8 = tfTransferable. Credentials default to non-transferable.
+    // Flag 8 = tfTransferable. Defaults to non-transferable.
     Flags: transferable ? 8 : 0,
   });
 }

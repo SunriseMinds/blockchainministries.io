@@ -1,0 +1,18 @@
+{
+  // Born Loyal Records — Reellink Cloud Platform application.
+  // Flags are intentionally ABSENT: an unset flag is false, so a fresh
+  // deployment serves static assets and keeps /api/* disabled until enabled.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "born-loyal-records",
+  "compatibility_date": "2025-01-01",
+  "main": "src/worker.js",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "born-loyal-records-db", "database_id": "<create with: wrangler d1 create born-loyal-records-db>" }
+  ],
+  "r2_buckets": [
+    { "binding": "PUBLIC_FILES", "bucket_name": "born-loyal-records-public" },
+    { "binding": "PROTECTED_FILES", "bucket_name": "born-loyal-records-protected" }
+  ],
+  "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "<create with: wrangler kv namespace create born-loyal-records-rate-limit>" }]
+}

@@ -1,8 +1,8 @@
 /**
  * R2 helpers for the two buckets.
  *
- *   PUBLIC_FILES    -> bm-public     (published scrolls, minister photos, brand)
- *   PROTECTED_FILES -> bm-protected  (credential PDFs, member-only scrolls)
+ *   PUBLIC_FILES    -> world-readable assets (images, published documents)
+ *   PROTECTED_FILES -> entitlement-gated documents
  *
  * `bm-protected` has no public access. Objects are reachable only by streaming
  * through an authorized Worker route, so authorization is always enforced in
@@ -117,11 +117,16 @@ export async function verifySignedKey(ctx, key, exp, sig) {
   if (!timingSafeEqual(expected, String(sig))) throw new HttpError(403, 'forbidden', 'Invalid signature');
 }
 
-/** Canonical key builders — keep layout consistent with R2_FILE_MIGRATION_PLAN.md. */
-export const keys = Object.freeze({
-  publicScroll: (scrollId) => `scrolls/${scrollId}.pdf`,
-  memberScroll: (scrollId) => `scrolls-member/${scrollId}.pdf`,
-  credential: (ordinationId) => `credentials/${ordinationId}.pdf`,
-  ministerPhoto: (ministerId, ext = 'jpg') => `ministers/${ministerId}.${ext}`,
-  brand: (name) => `brand/${name}`,
-});
+/**
+ * Build a namespaced key factory. Applications define their OWN key layout;
+ * the platform only enforces that keys are safe.
+ *
+ *   const keys = keyspace({ invoice: (id) => `invoices/${id}.pdf` });
+ */
+export function keyspace(builders) {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(builders).map(([name, fn]) => [name, (...args) => assertSafeKey(fn(...args))]),
+    ),
+  );
+}

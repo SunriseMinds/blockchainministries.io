@@ -163,7 +163,7 @@ export function mount(r) {
     if (xrpl.signingAvailable(ctx)) {
       try {
         const uri = `${ctx.env.SITE_URL || ctx.url.origin}/verify/${verifySlug}`;
-        const res = await xrpl.mintCredentialNft(ctx, { uri });
+        const res = await xrpl.mintNft(ctx, { uri });
         minting = { status: res.accepted ? 'submitted' : 'rejected', hash: res.hash, engine_result: res.engine_result, network: res.network };
         if (res.hash) await repo.ordinations.approve(ctx.params.id, { approvedBy: ctx.session.user_id, verifySlug, txHash: res.hash });
       } catch (e) {

@@ -89,7 +89,7 @@ export function explorerTxUrl(ctx, txHash) {
 
 /* ---------------------------------------------------------------- signing -- */
 /**
- * Credential NFT minting, delegated to the Worker-compatible signer in
+ * NFT minting, delegated to the Worker-compatible signer in
  * ./xrpl-signer.js (ripple-keypairs + ripple-binary-codec; the `xrpl` package
  * itself is not Worker-safe).
  *
@@ -100,9 +100,9 @@ export function explorerTxUrl(ctx, txHash) {
  * IDEMPOTENCY: callers must perform the D1 status transition first (it changes
  * 0 rows on a retry) and mint only when that transition actually occurred.
  */
-export async function mintCredentialNft(ctx, { uri, taxon = 0 }) {
+export async function mintNft(ctx, { uri, taxon = 0 }) {
   const signer = await import('./signer.js');
-  return signer.mintCredentialNft(ctx.env, { uri, taxon });
+  return signer.mintNft(ctx.env, { uri, taxon });
 }
 
 /** Whether signing could even be attempted (never reveals the secret). */
