@@ -75,7 +75,7 @@ export class Router {
         }
         return await route.handler(ctx);
       } catch (err) {
-        return errorResponse(err);
+        return errorResponse(err, ctx);
       }
     }
 

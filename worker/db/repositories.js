@@ -10,7 +10,7 @@
  * story reviewable: ownership filters live in the WHERE clause, bound to the
  * session's user id, never to a client-supplied value.
  */
-import { q, nowIso, uuid, page, fromJsonText } from '@reellink/database/d1.js';
+import { q, nowIso, uuid, page, fromJsonText, defineRepos } from '@reellink/database/d1.js';
 import { authRepos } from '@reellink/auth/repositories.js';
 import { auditLogs } from '@reellink/security/audit-repo.js';
 
@@ -303,8 +303,7 @@ export const ministers = (db) => ({
 
 
 /** Convenience accessor so handlers write `repos(db).users.byEmail(...)`. */
-export function repos(db) {
-  return {
+export const repos = defineRepos((db) => ({
     // Platform identity + audit, owned by @reellink/auth and @reellink/security.
     ...authRepos(db),
     auditLogs: auditLogs(db),
@@ -319,7 +318,6 @@ export function repos(db) {
     consultations: consultations(db),
     donations: donations(db),
     ministers: ministers(db),
-  };
-}
+  }));
 
 export { fromJsonText };

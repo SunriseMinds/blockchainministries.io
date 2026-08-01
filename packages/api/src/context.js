@@ -62,7 +62,7 @@ export function createApp(app) {
           if (early instanceof Response) return early;
         }
       } catch (err) {
-        return errorResponse(err);
+        return errorResponse(err, ctx);
       }
       return router.handle(ctx);
     },
@@ -86,8 +86,11 @@ export function createContext(request, env, executionCtx, extraFlags = []) {
     flags: getFlags(env, extraFlags),
     executionCtx,
     waitUntil: (p) => executionCtx?.waitUntil?.(p),
+    // Correlates logs, audit rows and error responses for one request.
+    requestId: request.headers.get('CF-Ray') || crypto.randomUUID(),
     // Populated by middleware.
     session: null,
+    sessionLoaded: false,
     params: {},
     body: undefined,
   };

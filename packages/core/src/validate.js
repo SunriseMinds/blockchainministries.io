@@ -86,3 +86,23 @@ export function pagination(url) {
   const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
   return { limit, offset };
 }
+
+/**
+ * Validate an optional `?status=` filter against an allow-list.
+ * Returns undefined when absent, throws 400 when present and invalid.
+ * (Every application list endpoint needs this; it should not be re-written.)
+ */
+export function statusFilter(url, allowed, param = 'status') {
+  const value = url.searchParams.get(param);
+  if (!value) return undefined;
+  if (!allowed.includes(value)) throw badRequest(`Invalid ${param} filter`);
+  return value;
+}
+
+/** Combine pagination and an optional status filter — the common list shape. */
+export function listQuery(url, allowedStatuses) {
+  return {
+    ...pagination(url),
+    ...(allowedStatuses ? { status: statusFilter(url, allowedStatuses) } : {}),
+  };
+}

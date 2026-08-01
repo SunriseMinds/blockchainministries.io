@@ -17,13 +17,22 @@ import { getSessionToken, originAllowed } from './cookies.js';
 import { resolveSession } from './session.js';
 import { authRepos } from './repositories.js';
 
-/** Populate ctx.session when a valid cookie is present. Never rejects. */
+/**
+ * Populate ctx.session when a valid cookie is present. Never rejects.
+ *
+ * Idempotent per request: the application pipeline runs this once, and the
+ * route guards call it again. Without the guard below that meant TWO session
+ * lookups (a D1 read each) on every authenticated request.
+ */
 export async function loadSession(ctx) {
+  if (ctx.sessionLoaded) return ctx.session;
+  ctx.sessionLoaded = true;
   ctx.session = null;
-  if (!ctx.flags.USE_WORKER_AUTH || !ctx.flags.USE_D1 || !ctx.env.DB) return;
+  if (!ctx.flags.USE_WORKER_AUTH || !ctx.flags.USE_D1 || !ctx.env.DB) return null;
   const token = getSessionToken(ctx.request);
-  if (!token) return;
+  if (!token) return null;
   ctx.session = await resolveSession(ctx.env.DB, token);
+  return ctx.session;
 }
 
 /** Require a valid session. */

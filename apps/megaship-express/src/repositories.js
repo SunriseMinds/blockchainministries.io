@@ -9,7 +9,7 @@
  * own business identifiers (quote_id, invoice_number, receipt_number), which
  * is why they do not follow the platform's TEXT-uuid convention.
  */
-import { q, page, nowIso } from '@reellink/database/d1.js';
+import { q, page, nowIso, defineRepos } from '@reellink/database/d1.js';
 import { authRepos } from '@reellink/auth/repositories.js';
 import { auditLogs } from '@reellink/security/audit-repo.js';
 
@@ -185,13 +185,11 @@ const receipts = (db) => ({
     q(db).run('UPDATE receipts SET emailed_at = ? WHERE receipt_number = ?', [nowIso(), receiptNumber]),
 });
 
-export function repos(db) {
-  return {
+export const repos = defineRepos((db) => ({
     ...authRepos(db),
     auditLogs: auditLogs(db),
     quotes: quotes(db),
     invoices: invoices(db),
     payments: payments(db),
     receipts: receipts(db),
-  };
-}
+  }));

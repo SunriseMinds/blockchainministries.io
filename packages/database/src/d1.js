@@ -79,3 +79,26 @@ export function fromJsonText(text) {
 /** SQLite stores booleans as 0/1. */
 export const toBool = (v) => (v ? 1 : 0);
 export const fromBool = (v) => v === 1 || v === true;
+
+/**
+ * Memoize a repository factory per database handle.
+ *
+ * Route handlers call `repos(db)` many times per request (13–18 in the current
+ * applications). Without memoization each call rebuilds every repository
+ * object and its closures. A WeakMap keyed on the D1 binding makes repeated
+ * calls free without changing the call signature, and lets the entry be
+ * collected with the binding.
+ *
+ *   export const repos = defineRepos((db) => ({ ...authRepos(db), items: items(db) }));
+ */
+export function defineRepos(factory) {
+  const cache = new WeakMap();
+  return function repos(db) {
+    let built = cache.get(db);
+    if (!built) {
+      built = factory(db);
+      cache.set(db, built);
+    }
+    return built;
+  };
+}

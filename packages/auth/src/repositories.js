@@ -67,7 +67,16 @@ export const sessions = (db) => ({
     return id;
   },
 
-  touch: (id) => q(db).run('UPDATE sessions SET last_seen_at = ? WHERE id = ?', [nowIso(), id]),
+  /**
+   * Refresh last_seen_at, but only when it is already stale. Session checks
+   * are frequent; writing on every one turns a read path into a write path.
+   */
+  touch: (id, staleAfterSeconds = 300) =>
+    q(db).run(
+      `UPDATE sessions SET last_seen_at = ?
+        WHERE id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)`,
+      [nowIso(), id, new Date(Date.now() - staleAfterSeconds * 1000).toISOString()],
+    ),
   revoke: (id) => q(db).run('UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL', [nowIso(), id]),
   revokeAllForUser: (userId) =>
     q(db).run('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL', [nowIso(), userId]),

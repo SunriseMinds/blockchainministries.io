@@ -1,11 +1,25 @@
+import { log, redact } from './logger.js';
 /**
  * HTTP helpers: one consistent JSON envelope and error model for every
  * /api/* response, so no handler hand-rolls its own shape.
  */
 
+/**
+ * Default security headers on every API response.
+ *
+ * No CSP here: an API returns JSON, and a CSP that is right for one app's
+ * frontend is wrong for another's. Frontend CSP belongs in each app's
+ * `public/_headers`.
+ */
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
+  // API responses are never a legitimate frame target.
+  'X-Frame-Options': 'DENY',
+  // Deny powerful features by default; a frontend route can re-grant them.
+  'Permissions-Policy': 'geolocation=(), microphone=(), camera=(), payment=()',
+  // Two years, subdomains included — Cloudflare terminates TLS for us.
+  'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
 };
 
 /** Error carrying an HTTP status. Anything else thrown becomes a 500. */
@@ -50,16 +64,29 @@ export function json(data, opts = {}) {
 }
 
 /** Convert any thrown value into a safe JSON error response. */
-export function errorResponse(err) {
+export function errorResponse(err, ctx) {
+  const requestId = ctx?.requestId;
   if (err instanceof HttpError) {
+    // 5xx from a typed error is still worth logging; 4xx is normal traffic.
+    if (err.status >= 500) log.error(ctx, 'request_failed', { code: err.code, status: err.status });
     return json(
-      { error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } },
+      {
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.details ? { details: err.details } : {}),
+          ...(requestId ? { request_id: requestId } : {}),
+        },
+      },
       { status: err.status },
     );
   }
   // Log server-side for diagnosis, but never leak internals to the client.
-  console.error('[api] unhandled error:', err?.stack || err?.message || String(err));
-  return json({ error: { code: 'internal_error', message: 'Internal error' } }, { status: 500 });
+  log.error(ctx, 'unhandled_error', { error: redact(err?.stack || err?.message || String(err), 500) });
+  return json(
+    { error: { code: 'internal_error', message: 'Internal error', ...(requestId ? { request_id: requestId } : {}) } },
+    { status: 500 },
+  );
 }
 
 export function noContent() {
