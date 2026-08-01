@@ -1,8 +1,12 @@
 # Reellink Cloud Platform packages
 
 Ten workspace packages providing every reusable Cloudflare backend concern.
-See `docs/REELLINK_PLATFORM.md` for the architecture and
-`docs/REELLINK_APP_MIGRATION_PLAN.md` for how applications adopt them.
+Start here:
+- **`PLATFORM_ARCHITECTURE.md`** — layers, request lifecycle, security model
+- **`PLATFORM_BEST_PRACTICES.md`** — rules derived from building two apps
+- **`PLATFORM_CHANGELOG.md`** — versions and upgrade policy
+- `docs/REELLINK_NEW_APP_GUIDE.md` — create an app in under 30 minutes
+- `docs/REELLINK_APP_MIGRATION_PLAN.md` — per-application adoption status
 
 | Package | Responsibility |
 |---|---|
