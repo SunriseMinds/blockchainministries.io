@@ -24,3 +24,6 @@ public/llms.txt
 
 # migration working state (contains member PII — never commit)
 .migration/
+
+# app build output
+apps/*/dist/

@@ -1,0 +1,21 @@
+{
+  // LOCAL TESTING ONLY. Distinct worker name so an accidental deploy cannot
+  // overwrite production. No real secrets.
+  "name": "megaship-express-localtest",
+  "compatibility_date": "2025-01-01",
+  "main": "src/worker.js",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "vars": {
+    "USE_D1": "true", "USE_R2": "true", "USE_KV": "true",
+    "USE_WORKER_AUTH": "true", "USE_TURNSTILE": "false", "USE_NEW_API": "true",
+    "SITE_URL": "http://127.0.0.1:8789",
+    "SESSION_PEPPER": "local-test-only-not-a-secret",
+    "ADMIN_NOTIFY_EMAIL": "ops@example.com"
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "megaship-express-leads", "database_id": "local-test" }],
+  "r2_buckets": [
+    { "binding": "PUBLIC_FILES", "bucket_name": "megaship-express-public" },
+    { "binding": "PROTECTED_FILES", "bucket_name": "megaship-express-protected" }
+  ],
+  "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "local-test-kv" }]
+}

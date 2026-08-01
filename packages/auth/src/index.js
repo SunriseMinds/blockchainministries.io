@@ -4,3 +4,4 @@ export * from './cookies.js';
 export * from './session.js';
 export * from './middleware.js';
 export * from './repositories.js';
+export * from './routes.js';

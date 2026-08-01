@@ -1,0 +1,27 @@
+{
+  // Megaship Express — first production application on the Reellink Cloud Platform.
+  //
+  // Feature flags are ABSENT on purpose: an unset variable is false, so this
+  // deployment keeps /api/* disabled until flags are enabled one at a time.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "megaship-express",
+  "compatibility_date": "2025-01-01",
+  "main": "src/worker.js",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      // EXISTING production database — adopted as-is, never recreated.
+      "database_name": "megaship-express-leads",
+      "database_id": "4aa96108-d655-4642-9df6-d88f11ebe763",
+      "preview_database_id": "0cb062cf-533e-44c1-bb8a-e2f0f684e827"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "PUBLIC_FILES", "bucket_name": "megaship-express-public" },
+    { "binding": "PROTECTED_FILES", "bucket_name": "megaship-express-protected" }
+  ],
+  "kv_namespaces": [
+    { "binding": "RATE_LIMIT", "id": "52e246dc1c9c46f6800224b2bff4ceb4" }
+  ]
+}

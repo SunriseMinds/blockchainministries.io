@@ -9,7 +9,8 @@ import { Router } from '@reellink/api/router.js';
 import { json, errorResponse, unavailable } from '@reellink/core/http.js';
 import { describeFlags } from '@reellink/core/flags.js';
 import { requireSameOrigin, loadSession } from '@reellink/auth/middleware.js';
-import { mount as mountAuth } from './auth.js';
+import { templates } from '../email/templates.js';
+import { mountAuthRoutes } from '@reellink/auth/routes.js';
 import { mount as mountPublic } from './public.js';
 import { mount as mountAdmin } from './admin.js';
 import { mount as mountFiles } from './files.js';
@@ -27,7 +28,8 @@ function buildRouter() {
     time: new Date().toISOString(),
   }));
 
-  mountAuth(r);
+  // Platform authentication routes; only the email copy is ours.
+  mountAuthRoutes(r, { templates });
   mountPublic(r);
   mountAdmin(r);
   mountFiles(r);

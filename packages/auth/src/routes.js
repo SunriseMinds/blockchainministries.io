@@ -1,22 +1,23 @@
 /**
- * /api/auth — Worker-issued authentication.
+ * Platform authentication routes: signup, login, logout, session, email
+ * verification and password reset.
  *
- * Inert unless USE_WORKER_AUTH is true. Production authentication is still
- * Supabase; nothing here runs until the cutover flag is set.
+ * Owned by the platform so no application re-implements them. Inert unless
+ * USE_WORKER_AUTH is true.
  */
 import { json, noContent, readJson, unauthorized, forbidden, conflict, clientIp, HttpError } from '@reellink/core/http.js';
 import { requireDb } from '@reellink/database/d1.js';
-import { repos } from '../db/repositories.js';
+import { authRepos } from './repositories.js';
 import * as v from '@reellink/core/validate.js';
-import { hashPassword, verifyPassword, unusablePasswordHash } from '@reellink/auth/password.js';
+import { hashPassword, verifyPassword, unusablePasswordHash } from './password.js';
 import { randomToken, sha256Hex } from '@reellink/security/crypto.js';
-import { issueSession, revokeSession, revokeAllSessions } from '@reellink/auth/session.js';
-import { buildSessionCookie, clearSessionCookie, getSessionToken, SESSION_TTL_SECONDS } from '@reellink/auth/cookies.js';
+import { issueSession, revokeSession, revokeAllSessions } from './session.js';
+import { buildSessionCookie, clearSessionCookie, getSessionToken, SESSION_TTL_SECONDS } from './cookies.js';
 import { enforce, reset } from '@reellink/security/ratelimit.js';
-import { audit } from '@reellink/security/audit.js';
-import { ACTIONS } from '../config/actions.js';
-import { send, templates } from '../email/templates.js';
-import { requireAuth } from '@reellink/auth/middleware.js';
+import { audit, CORE_ACTIONS as ACTIONS } from '@reellink/security/audit.js';
+import { send } from '@reellink/email';
+import { AUTH_EMAIL_TEMPLATES } from './email-defaults.js';
+import { requireAuth } from './middleware.js';
 import { requireTurnstile } from '@reellink/security/turnstile-middleware.js';
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -46,7 +47,16 @@ function sessionView(session) {
   };
 }
 
-export function mount(r) {
+/**
+ * Mount the platform authentication routes.
+ *
+ * @param {import('@reellink/api').Router} r
+ * @param {{templates?:object, basePath?:string}} [options]
+ *        `templates` lets an application supply its own copy/voice; platform
+ *        defaults are used for anything not provided.
+ */
+export function mountAuthRoutes(r, options = {}) {
+  const templates = { ...AUTH_EMAIL_TEMPLATES, ...(options.templates ?? {}) };
   /* ------------------------------------------------------------- signup -- */
   r.post('/api/auth/signup', [requireTurnstile], async (ctx) => {
     const db = requireWorkerAuth(ctx);
@@ -58,7 +68,7 @@ export function mount(r) {
     const password = v.password(body);
     const displayName = v.str(body, 'display_name', { required: false, max: 120 });
 
-    const repo = repos(db);
+    const repo = authRepos(db);
     const existing = await repo.users.byEmail(email);
     if (existing) {
       // Do not reveal that the address is registered.
@@ -95,7 +105,7 @@ export function mount(r) {
     await enforce(ctx, 'login', ip);
     await enforce(ctx, 'login', `email:${email}`);
 
-    const repo = repos(db);
+    const repo = authRepos(db);
     const user = await repo.users.byEmail(email);
 
     // Always run a verification to keep timing similar for unknown accounts.
@@ -135,7 +145,7 @@ export function mount(r) {
     const db = requireWorkerAuth(ctx);
     const raw = getSessionToken(ctx.request);
     if (raw) {
-      const row = await repos(db).sessions.byTokenHash(await sha256Hex(raw));
+      const row = await authRepos(db).sessions.byTokenHash(await sha256Hex(raw));
       if (row) {
         await revokeSession(db, row.session_id);
         await audit(ctx, ACTIONS.AUTH_LOGOUT, { actorUserId: row.user_id, actorEmail: row.email });
@@ -158,10 +168,10 @@ export function mount(r) {
     requireDb(ctx);
     const raw = getSessionToken(ctx.request);
     if (!raw) return json({ authenticated: false });
-    const { resolveSession } = await import('@reellink/auth/session.js');
+    const { resolveSession } = await import('./session.js');
     const session = await resolveSession(ctx.env.DB, raw);
     if (!session) return json({ authenticated: false });
-    await repos(ctx.env.DB).sessions.touch(session.session_id);
+    await authRepos(ctx.env.DB).sessions.touch(session.session_id);
     return json({ authenticated: true, ...sessionView(session) });
   });
 
@@ -172,7 +182,7 @@ export function mount(r) {
     const body = await readJson(ctx.request);
     const token = v.token(body);
 
-    const repo = repos(db);
+    const repo = authRepos(db);
     const row = await repo.emailVerificationTokens.byTokenHash(await sha256Hex(token));
     if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now()) {
       throw new HttpError(400, 'invalid_token', 'This verification link is invalid or has expired');
@@ -192,7 +202,7 @@ export function mount(r) {
     const email = v.email(ctx.body);
     await enforce(ctx, 'passwordReset', `email:${email}`);
 
-    const repo = repos(db);
+    const repo = authRepos(db);
     const user = await repo.users.byEmail(email);
 
     if (user) {
@@ -219,7 +229,7 @@ export function mount(r) {
     const token = v.token(body);
     const password = v.password(body);
 
-    const repo = repos(db);
+    const repo = authRepos(db);
     const row = await repo.passwordResetTokens.byTokenHash(await sha256Hex(token));
     if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now()) {
       throw new HttpError(400, 'invalid_token', 'This reset link is invalid or has expired');
@@ -244,4 +254,3 @@ export function mount(r) {
   return r;
 }
 
-export { noContent };
