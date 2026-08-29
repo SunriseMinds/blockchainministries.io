@@ -196,7 +196,7 @@ export function mount(r) {
   r.post('/api/membership/join', [requireVerifiedEmail], async (ctx) => {
     const db = requireDb(ctx);
     const body = await readJson(ctx.request);
-    const membershipType = v.str(body, 'membership_type', { required: false, max: 60 });
+    const membershipType = v.oneOf(body, 'membership_type', ['free', 'paid'], { required: false });
     const repo = repos(db);
 
     const existing = await repo.memberships.byUser(ctx.session.user_id);
