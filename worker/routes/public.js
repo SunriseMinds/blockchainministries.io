@@ -229,10 +229,28 @@ export function mount(r) {
   });
 
   /* --------------------------------------------------------- ordination -- */
+  /**
+   * Only the fields the product actually needs are returned — not the full
+   * row. `approved_by`, `application_json`, and the raw `credential_r2_key`
+   * are deliberately withheld as admin-only/internal; credential availability
+   * is exposed only as a boolean. Retrieving the actual file, once credential
+   * generation exists, goes through the authenticated /api/files/protected
+   * route (see worker/routes/files.js), never this endpoint.
+   */
   r.get('/api/ordination/mine', [requireAuth], async (ctx) => {
     const db = requireDb(ctx);
     const items = await repos(db).ordinations.listByUser(ctx.session.user_id);
-    return json({ items });
+    return json({
+      items: items.map((o) => ({
+        id: o.id,
+        status: o.status,
+        verify_slug: o.verify_slug,
+        credential_available: Boolean(o.credential_r2_key),
+        created_at: o.created_at,
+        updated_at: o.updated_at,
+        approved_at: o.approved_at,
+      })),
+    });
   });
 
   /**
@@ -254,10 +272,21 @@ export function mount(r) {
     const application = buildOrdinationApplication(body);
     const repo = repos(db);
 
-    const ordinationId = await repo.ordinations.create({
-      userId: ctx.session.user_id,
-      applicationJson: JSON.stringify(application),
-    });
+    // Mirrors /api/membership/apply's dedupe/resubmit pattern: a pending or
+    // approved application blocks a new one; a rejected one may be resubmitted.
+    const existing = await repo.ordinations.byUser(ctx.session.user_id);
+    if (existing && existing.status !== 'rejected') {
+      throw conflict('An ordination application is already on file');
+    }
+
+    const applicationJson = JSON.stringify(application);
+    let ordinationId;
+    if (existing) {
+      await repo.ordinations.resubmit(existing.id, { applicationJson });
+      ordinationId = existing.id;
+    } else {
+      ordinationId = await repo.ordinations.create({ userId: ctx.session.user_id, applicationJson });
+    }
 
     await send(ctx, { to: ctx.session.email, ...templates.applicationReceived('ordination') });
     await audit(ctx, ACTIONS.ORDINATION_APPLY, { entityType: 'ordination', entityId: ordinationId });

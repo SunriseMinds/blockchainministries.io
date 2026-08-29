@@ -91,6 +91,9 @@ export const ordinations = (db) => ({
   byId: (id) => q(db).first('SELECT * FROM ordinations WHERE id = ?', [id]),
   listByUser: (userId) =>
     q(db).all('SELECT * FROM ordinations WHERE user_id = ? ORDER BY created_at DESC', [userId]),
+  /** Most recent ordination for this user — used to dedupe/resubmit, mirrors memberships.byUser. */
+  byUser: (userId) =>
+    q(db).first('SELECT * FROM ordinations WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [userId]),
 
   /** Public verification: approved only. */
   byVerifySlug: (slug) =>
@@ -129,6 +132,24 @@ export const ordinations = (db) => ({
     const meta = await q(db).run(
       `UPDATE ordinations SET status='rejected', approved_by=?, updated_at=? WHERE id = ? AND status='pending'`,
       [approvedBy, nowIso(), id],
+    );
+    return (meta.changes ?? 0) === 1;
+  },
+
+  /**
+   * A previously-rejected applicant may resubmit — the only allowed
+   * rejected → pending transition, mirrors memberships.resubmit. A rejected
+   * row can only ever have reached 'rejected' from 'pending' (never from
+   * 'approved'), so approved_by/approved_at/nft_token_id/tx_hash are always
+   * already NULL here; cleared anyway for defense in depth.
+   */
+  async resubmit(id, { applicationJson }) {
+    const meta = await q(db).run(
+      `UPDATE ordinations
+          SET status='pending', application_json=?, approved_by=NULL, approved_at=NULL,
+              nft_token_id=NULL, tx_hash=NULL, updated_at=?
+        WHERE id = ? AND status = 'rejected'`,
+      [applicationJson, nowIso(), id],
     );
     return (meta.changes ?? 0) === 1;
   },
