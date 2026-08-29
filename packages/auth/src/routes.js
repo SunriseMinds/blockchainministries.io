@@ -76,8 +76,7 @@ export function mountAuthRoutes(r, options = {}) {
       return json({ ok: true, message: 'Check your email to continue.' }, { status: 202 });
     }
 
-    const userId = await repo.users.create({ email, passwordHash: await hashPassword(password) });
-    await repo.profiles.create({ id: userId, displayName });
+    const userId = await repo.users.create({ email, passwordHash: await hashPassword(password), displayName });
 
     const token = randomToken(32);
     await repo.emailVerificationTokens.create({

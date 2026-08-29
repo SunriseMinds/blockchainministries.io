@@ -119,6 +119,11 @@ CREATE TABLE memberships (
   -- the two tiers the product actually offers.
   membership_type    TEXT
                        CHECK (membership_type IS NULL OR membership_type IN ('free','paid')),
+  -- Validated application payload (currently: displayName, walletXrpl — see
+  -- src/pages/MembershipApply.jsx), serialized server-side. NULL because not
+  -- every membership row is created via the application form (e.g. the
+  -- /api/membership/join alias creates one with no form data at all).
+  application_json   TEXT,
   nft_token_id       TEXT,
   tx_hash            TEXT,
   approved_by        TEXT REFERENCES users(id),

@@ -2,7 +2,9 @@
  * <APP_NAME> — domain repositories. The single place this app's SQL is written.
  *
  * Platform identity/audit repositories are composed in, so route handlers get
- * users/sessions/profiles/auditLogs for free alongside domain tables.
+ * users/sessions/auditLogs for free alongside domain tables. There is one
+ * canonical `users` table (role/display_name/wallet_xrpl/stripe_customer_id
+ * live on it directly) — do not add a separate profiles/identity table.
  * Every query is parameterized; ownership filters bind the session user id.
  */
 import { q, page, uuid, nowIso } from '@reellink/database/d1.js';

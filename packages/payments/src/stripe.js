@@ -131,7 +131,16 @@ export async function verifyWebhookSignature(ctx, rawBody, signatureHeader, tole
   return JSON.parse(rawBody);
 }
 
-/** Map a Stripe event to a donation row shape (used by the webhook route). */
+/**
+ * Map a Stripe event to a donation row shape (used by the webhook route).
+ *
+ * `stripeEventId` is `event.id` — the id of the webhook DELIVERY itself,
+ * guaranteed unique per event and the only correct idempotency key for
+ * `donations.stripe_event_id UNIQUE`. It must never be confused with
+ * `providerChargeId`, which is the underlying object's own id (a
+ * PaymentIntent, Checkout Session, or Invoice id) — informational only, and
+ * NOT guaranteed unique across event types the way `event.id` is.
+ */
 export function donationFromEvent(event) {
   const obj = event?.data?.object;
   if (!obj) return null;
@@ -139,7 +148,8 @@ export function donationFromEvent(event) {
     case 'payment_intent.succeeded':
       return {
         provider: 'stripe',
-        providerId: obj.id,
+        stripeEventId: event.id,
+        providerChargeId: obj.id,
         amountCents: obj.amount_received ?? obj.amount,
         currency: obj.currency || 'usd',
         status: 'succeeded',
@@ -149,7 +159,8 @@ export function donationFromEvent(event) {
     case 'payment_intent.payment_failed':
       return {
         provider: 'stripe',
-        providerId: obj.id,
+        stripeEventId: event.id,
+        providerChargeId: obj.id,
         amountCents: obj.amount ?? 0,
         currency: obj.currency || 'usd',
         status: 'failed',
@@ -162,7 +173,8 @@ export function donationFromEvent(event) {
       if (obj.mode === 'subscription') return null;
       return {
         provider: 'stripe',
-        providerId: obj.payment_intent || obj.id,
+        stripeEventId: event.id,
+        providerChargeId: obj.payment_intent || obj.id,
         amountCents: obj.amount_total ?? 0,
         currency: obj.currency || 'usd',
         status: obj.payment_status === 'paid' ? 'succeeded' : (obj.payment_status || 'pending'),
@@ -174,7 +186,8 @@ export function donationFromEvent(event) {
       // Recurring membership payment.
       return {
         provider: 'stripe',
-        providerId: obj.id,
+        stripeEventId: event.id,
+        providerChargeId: obj.id,
         amountCents: obj.amount_paid ?? 0,
         currency: obj.currency || 'usd',
         status: 'succeeded',
@@ -184,6 +197,47 @@ export function donationFromEvent(event) {
 
     default:
       return null; // event types we deliberately ignore
+  }
+}
+
+/**
+ * Structural support (M2.5) for subscription lifecycle events — no Stripe API
+ * call is made anywhere in this module, and this is not wired into the
+ * webhook route yet. It exists so the repository/API interfaces don't
+ * contradict the approved architecture; full behavior is a later milestone.
+ * Returns null for event types this doesn't (yet) recognize as subscription
+ * lifecycle events.
+ */
+export function subscriptionEventFromEvent(event) {
+  const obj = event?.data?.object;
+  if (!obj) return null;
+  switch (event.type) {
+    case 'checkout.session.completed':
+      if (obj.mode !== 'subscription' || !obj.subscription) return null;
+      return {
+        stripeSubscriptionId: obj.subscription,
+        stripeCustomerId: obj.customer,
+        userId: obj.metadata?.user_id ?? null,
+        status: 'active',
+      };
+    case 'invoice.paid':
+      if (!obj.subscription) return null;
+      return {
+        stripeSubscriptionId: obj.subscription,
+        stripeCustomerId: obj.customer,
+        userId: obj.subscription_details?.metadata?.user_id ?? obj.metadata?.user_id ?? null,
+        status: 'active',
+        currentPeriodEnd: obj.lines?.data?.[0]?.period?.end
+          ? new Date(obj.lines.data[0].period.end * 1000).toISOString()
+          : null,
+      };
+    case 'invoice.payment_failed':
+      if (!obj.subscription) return null;
+      return { stripeSubscriptionId: obj.subscription, stripeCustomerId: obj.customer, status: 'past_due' };
+    case 'customer.subscription.deleted':
+      return { stripeSubscriptionId: obj.id, stripeCustomerId: obj.customer, status: 'cancelled' };
+    default:
+      return null;
   }
 }
 

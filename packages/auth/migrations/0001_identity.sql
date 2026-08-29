@@ -1,10 +1,24 @@
 -- @reellink/auth — platform identity schema.
 -- Every Reellink application applies this BEFORE its own domain migrations.
+--
+-- Revision note: `role`/`display_name`/`wallet_xrpl`/`stripe_customer_id` were
+-- moved onto `users` directly (there is no separate `profiles` table) to
+-- match @reellink/auth/repositories.js. This is a BREAKING change for any
+-- application that already applied the previous version of this file to a
+-- real database (Megaship Express is the one known case) — that database's
+-- `users` table is missing these columns and still has a `profiles` table
+-- the current repository code no longer queries. Reconciling an
+-- already-live application onto this revision is a separate, apposite
+-- migration for that application; it is NOT done as part of this change.
 CREATE TABLE users (
   id                 TEXT PRIMARY KEY,
   email              TEXT NOT NULL UNIQUE,
   password_hash      TEXT NOT NULL,
   email_verified     INTEGER NOT NULL DEFAULT 0,
+  role               TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member','admin')),
+  display_name       TEXT,
+  wallet_xrpl        TEXT,
+  stripe_customer_id TEXT,
   status             TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','deleted')),
   failed_login_count INTEGER NOT NULL DEFAULT 0,
   locked_until       TEXT,
@@ -13,6 +27,7 @@ CREATE TABLE users (
 );
 CREATE INDEX idx_users_email  ON users(email);
 CREATE INDEX idx_users_status ON users(status);
+CREATE INDEX idx_users_role   ON users(role);
 
 CREATE TABLE sessions (
   id           TEXT PRIMARY KEY,
@@ -45,14 +60,7 @@ CREATE TABLE password_reset_tokens (
 );
 CREATE INDEX idx_prt_user ON password_reset_tokens(user_id);
 
--- `role` is never self-writable: privilege escalation guard.
-CREATE TABLE profiles (
-  id                 TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  role               TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member','admin')),
-  display_name       TEXT,
-  wallet_xrpl        TEXT,
-  stripe_customer_id TEXT,
-  created_at         TEXT NOT NULL,
-  updated_at         TEXT NOT NULL
-);
-CREATE INDEX idx_profiles_role ON profiles(role);
+-- No `profiles` table. `role` lives on `users` and is never self-writable —
+-- @reellink/auth/repositories.js's `users.updateSelf()` has no `role`
+-- parameter; only `users.setRole()` (an explicit administrative action) can
+-- change it.

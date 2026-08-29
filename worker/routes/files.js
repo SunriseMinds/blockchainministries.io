@@ -35,7 +35,7 @@ async function canReadProtected(ctx, db, key) {
     const scroll = await repo.scrolls.byId(m[1]);
     if (!scroll || scroll.visibility === 'admin') return false;
     const membership = await repo.memberships.byUser(ctx.session.user_id);
-    return Boolean(membership && membership.status === 'approved');
+    return Boolean(membership && membership.application_status === 'approved');
   }
 
   return false; // deny by default

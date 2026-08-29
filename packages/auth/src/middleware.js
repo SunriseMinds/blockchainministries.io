@@ -8,7 +8,7 @@
  * Admin protection is layered:
  *   1. Cloudflare Access sits in front of /admin* and /api/admin/* (configured
  *      in the dashboard) and injects Cf-Access-Jwt-Assertion.
- *   2. requireAdmin ALSO re-checks profiles.role in D1 — the edge is never
+ *   2. requireAdmin ALSO re-checks users.role in D1 — the edge is never
  *      trusted on its own.
  */
 import { unauthorized, forbidden, badRequest } from '@reellink/core/http.js';
@@ -60,7 +60,7 @@ export async function requireAdmin(ctx) {
   await requireAuth(ctx);
 
   const role = ctx.session.role
-    ?? (await authRepos(ctx.env.DB).profiles.byId(ctx.session.user_id))?.role;
+    ?? (await authRepos(ctx.env.DB).users.byId(ctx.session.user_id))?.role;
 
   if (role !== 'admin') throw forbidden('Administrator access required');
 

@@ -1,10 +1,16 @@
 /**
  * Platform identity repositories.
  *
- * `users`, `sessions`, `email_verification_tokens`, `password_reset_tokens`
- * and `profiles` are PLATFORM tables — every Reellink application needs them
- * and they are owned here, not by the application. Applications own only their
- * domain tables.
+ * `users`, `sessions`, `email_verification_tokens` and `password_reset_tokens`
+ * are PLATFORM tables — every Reellink application needs them and they are
+ * owned here, not by the application. Applications own only their domain
+ * tables.
+ *
+ * There is deliberately ONE identity table (`users`). It carries role,
+ * display name, XRPL wallet, and Stripe customer id directly — there is no
+ * separate `profiles` table to keep in sync, and no other identity table may
+ * be introduced (see the Phase 0 Supabase audit: a second identity table,
+ * `public.users`, existed there and was simply dead — 0 rows, no write path).
  *
  * All SQL is parameterized. Ownership filters are bound to the session's user
  * id by the caller; no query ever trusts a client-supplied id.
@@ -15,14 +21,15 @@ export const users = (db) => ({
   byId: (id) => q(db).first('SELECT * FROM users WHERE id = ?', [id]),
   byEmail: (email) => q(db).first('SELECT * FROM users WHERE email = ?', [email]),
 
-  async create({ email, passwordHash, emailVerified = false }) {
+  /** `role` is deliberately not a parameter here — it is always the column default. */
+  async create({ email, passwordHash, emailVerified = false, displayName = null }) {
     const id = uuid();
     const ts = nowIso();
     await q(db).run(
-      `INSERT INTO users (id, email, password_hash, email_verified, status,
-                          failed_login_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'active', 0, ?, ?)`,
-      [id, email, passwordHash, emailVerified ? 1 : 0, ts, ts],
+      `INSERT INTO users (id, email, password_hash, email_verified, role, display_name,
+                          status, failed_login_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'member', ?, 'active', 0, ?, ?)`,
+      [id, email, passwordHash, emailVerified ? 1 : 0, displayName, ts, ts],
     );
     return id;
   },
@@ -41,18 +48,49 @@ export const users = (db) => ({
 
   resetFailedLogins: (id) =>
     q(db).run('UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = ? WHERE id = ?', [nowIso(), id]),
+
+  /**
+   * Self-service profile fields only. `role`, `password_hash`, `email_verified`,
+   * `failed_login_count`, `locked_until`, `stripe_customer_id`, `status` are
+   * deliberately NOT parameters here — privilege-escalation guard. Only an
+   * explicit administrative action (setRole) or internal payment code
+   * (setStripeCustomerId) may touch those.
+   */
+  updateSelf: (id, { displayName, walletXrpl }) =>
+    q(db).run(
+      `UPDATE users
+          SET display_name = COALESCE(?, display_name),
+              wallet_xrpl  = COALESCE(?, wallet_xrpl),
+              updated_at   = ?
+        WHERE id = ?`,
+      [displayName ?? null, walletXrpl ?? null, nowIso(), id],
+    ),
+
+  /** Role changes are an administrative action; callers must audit them. */
+  setRole: (id, role) => q(db).run('UPDATE users SET role = ?, updated_at = ? WHERE id = ?', [role, nowIso(), id]),
+
+  /** Set by internal Stripe integration code only — never client-facing. */
+  setStripeCustomerId: (id, stripeCustomerId) =>
+    q(db).run('UPDATE users SET stripe_customer_id = ?, updated_at = ? WHERE id = ?', [stripeCustomerId, nowIso(), id]),
+
+  list(opts) {
+    const p = page(opts);
+    return q(db).all(
+      `SELECT id, role, display_name, email, email_verified, created_at
+         FROM users
+        ORDER BY created_at DESC${p.clause}`,
+      p.params,
+    );
+  },
 });
 
 export const sessions = (db) => ({
-  /** Joins the profile so auth middleware resolves role in one round trip. */
   byTokenHash: (tokenHash) =>
     q(db).first(
       `SELECT s.id AS session_id, s.user_id, s.expires_at, s.revoked_at, s.last_seen_at,
-              u.email, u.status, u.email_verified,
-              p.role, p.display_name
+              u.email, u.status, u.email_verified, u.role, u.display_name
          FROM sessions s
-         JOIN users u         ON u.id = s.user_id
-         LEFT JOIN profiles p ON p.id = s.user_id
+         JOIN users u ON u.id = s.user_id
         WHERE s.token_hash = ?`,
       [tokenHash],
     ),
@@ -111,42 +149,6 @@ function tokenRepo(db, table) {
 export const emailVerificationTokens = (db) => tokenRepo(db, 'email_verification_tokens');
 export const passwordResetTokens = (db) => tokenRepo(db, 'password_reset_tokens');
 
-export const profiles = (db) => ({
-  byId: (id) => q(db).first('SELECT * FROM profiles WHERE id = ?', [id]),
-
-  async create({ id, displayName = null, role = 'member' }) {
-    const ts = nowIso();
-    await q(db).run(
-      'INSERT INTO profiles (id, role, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-      [id, role, displayName, ts, ts],
-    );
-  },
-
-  /** `role` is deliberately NOT updatable here — privilege escalation guard. */
-  updateSelf: (id, { displayName, walletXrpl }) =>
-    q(db).run(
-      `UPDATE profiles
-          SET display_name = COALESCE(?, display_name),
-              wallet_xrpl  = COALESCE(?, wallet_xrpl),
-              updated_at   = ?
-        WHERE id = ?`,
-      [displayName ?? null, walletXrpl ?? null, nowIso(), id],
-    ),
-
-  /** Role changes are an administrative action; callers must audit them. */
-  setRole: (id, role) => q(db).run('UPDATE profiles SET role = ?, updated_at = ? WHERE id = ?', [role, nowIso(), id]),
-
-  list(opts) {
-    const p = page(opts);
-    return q(db).all(
-      `SELECT p.id, p.role, p.display_name, p.created_at, u.email, u.email_verified
-         FROM profiles p JOIN users u ON u.id = p.id
-        ORDER BY p.created_at DESC${p.clause}`,
-      p.params,
-    );
-  },
-});
-
 /** All identity repositories for a database handle. */
 export function authRepos(db) {
   return {
@@ -154,6 +156,5 @@ export function authRepos(db) {
     sessions: sessions(db),
     emailVerificationTokens: emailVerificationTokens(db),
     passwordResetTokens: passwordResetTokens(db),
-    profiles: profiles(db),
   };
 }

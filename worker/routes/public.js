@@ -22,19 +22,27 @@ export function mount(r) {
   /* ------------------------------------------------------------ profile -- */
   r.get('/api/profile', [requireAuth], async (ctx) => {
     const db = requireDb(ctx);
-    const profile = await repos(db).profiles.byId(ctx.session.user_id);
-    if (!profile) throw notFound('Profile not found');
+    const user = await repos(db).users.byId(ctx.session.user_id);
+    if (!user) throw notFound('Profile not found');
     return json({
-      id: profile.id,
-      email: ctx.session.email,
-      role: profile.role,
-      display_name: profile.display_name,
-      wallet_xrpl: profile.wallet_xrpl,
-      stripe_customer_id: profile.stripe_customer_id,
-      created_at: profile.created_at,
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      display_name: user.display_name,
+      wallet_xrpl: user.wallet_xrpl,
+      // stripe_customer_id is deliberately not exposed here — internal billing
+      // linkage, not a client-facing profile field.
+      created_at: user.created_at,
     });
   });
 
+  /**
+   * Only `display_name` and `wallet_xrpl` are ever accepted here. `role`,
+   * `password_hash`, `email_verified`, `failed_login_count`, `locked_until`,
+   * and `stripe_customer_id` are never read from the request body — this is
+   * the privilege-escalation guard, enforced by `users.updateSelf()` only
+   * having parameters for the two safe fields (see packages/auth/repositories.js).
+   */
   r.patch('/api/profile', [requireAuth], async (ctx) => {
     const db = requireDb(ctx);
     const body = await readJson(ctx.request);
@@ -42,11 +50,10 @@ export function mount(r) {
     const walletXrpl = v.str(body, 'wallet_xrpl', { required: false, max: 64 });
 
     if (walletXrpl && !xrpl.isValidAddress(walletXrpl)) throw badRequest('Invalid XRPL address');
-    // `role` is intentionally not accepted here — privilege escalation guard.
 
-    await repos(db).profiles.updateSelf(ctx.session.user_id, { displayName, walletXrpl });
-    await audit(ctx, ACTIONS.PROFILE_UPDATE, { entityType: 'profile', entityId: ctx.session.user_id });
-    const updated = await repos(db).profiles.byId(ctx.session.user_id);
+    await repos(db).users.updateSelf(ctx.session.user_id, { displayName, walletXrpl });
+    await audit(ctx, ACTIONS.PROFILE_UPDATE, { entityType: 'user', entityId: ctx.session.user_id });
+    const updated = await repos(db).users.byId(ctx.session.user_id);
     return json({ ok: true, profile: { display_name: updated.display_name, wallet_xrpl: updated.wallet_xrpl } });
   });
 
@@ -139,26 +146,50 @@ export function mount(r) {
     return json({ membership: membership ?? null });
   });
 
+  /**
+   * The membership application form (src/pages/MembershipApply.jsx) collects
+   * exactly two fields. Only those two are ever read from the request body —
+   * arbitrary client JSON never reaches storage; anything else the client
+   * sends is silently dropped, not merged in.
+   */
+  function buildMembershipApplication(body) {
+    const displayName = v.str(body, 'displayName', { max: 120 });
+    const walletXrpl = v.str(body, 'walletXrpl', { required: false, max: 64 });
+    if (walletXrpl && !xrpl.isValidAddress(walletXrpl)) throw badRequest('Invalid XRPL address');
+    return { displayName, walletXrpl };
+  }
+
   r.post('/api/membership/apply', [requireVerifiedEmail], async (ctx) => {
     const db = requireDb(ctx);
     const body = await readJson(ctx.request);
-    const applicationJson = v.jsonField(body, 'application');
+    const application = buildMembershipApplication(body);
     const repo = repos(db);
 
     const existing = await repo.memberships.byUser(ctx.session.user_id);
-    if (existing && existing.status !== 'rejected') {
+    if (existing && existing.application_status !== 'rejected') {
       throw conflict('A membership application is already on file');
     }
 
-    const applicationId = await repo.membershipApplications.create({
-      userId: ctx.session.user_id,
-      applicationJson,
+    // The same validated payload also updates the user's own profile fields
+    // (matches the live product's apply-for-membership behavior).
+    await repo.users.updateSelf(ctx.session.user_id, {
+      displayName: application.displayName,
+      walletXrpl: application.walletXrpl,
     });
-    if (!existing) await repo.memberships.create({ userId: ctx.session.user_id });
+
+    const applicationJson = JSON.stringify(application);
+    let membershipId;
+    if (existing) {
+      // existing.application_status === 'rejected' here (checked above).
+      await repo.memberships.resubmit(existing.id, { applicationJson });
+      membershipId = existing.id;
+    } else {
+      membershipId = await repo.memberships.create({ userId: ctx.session.user_id, applicationJson });
+    }
 
     await send(ctx, { to: ctx.session.email, ...templates.applicationReceived('membership') });
-    await audit(ctx, ACTIONS.MEMBERSHIP_APPLY, { entityType: 'membership_application', entityId: applicationId });
-    return json({ ok: true, application_id: applicationId }, { status: 201 });
+    await audit(ctx, ACTIONS.MEMBERSHIP_APPLY, { entityType: 'membership', entityId: membershipId });
+    return json({ ok: true, membership_id: membershipId }, { status: 201 });
   });
 
   /** Alias kept so the existing `join-membership` flow maps 1:1. */
@@ -183,22 +214,33 @@ export function mount(r) {
     return json({ items });
   });
 
+  /**
+   * The ordination application form (src/pages/Ordination.jsx) collects
+   * exactly three fields. Only those three are ever read from the request
+   * body — arbitrary client JSON never reaches storage.
+   */
+  function buildOrdinationApplication(body) {
+    return {
+      fullName: v.str(body, 'fullName', { max: 200 }),
+      reason: v.str(body, 'reason', { max: 5000 }),
+      experience: v.str(body, 'experience', { required: false, max: 5000 }),
+    };
+  }
+
   r.post('/api/ordination/apply', [requireVerifiedEmail], async (ctx) => {
     const db = requireDb(ctx);
     const body = await readJson(ctx.request);
-    const applicationJson = v.jsonField(body, 'application');
+    const application = buildOrdinationApplication(body);
     const repo = repos(db);
 
-    const ordinationId = await repo.ordinations.create({ userId: ctx.session.user_id });
-    const applicationId = await repo.ordinationApplications.create({
+    const ordinationId = await repo.ordinations.create({
       userId: ctx.session.user_id,
-      ordinationId,
-      applicationJson,
+      applicationJson: JSON.stringify(application),
     });
 
     await send(ctx, { to: ctx.session.email, ...templates.applicationReceived('ordination') });
     await audit(ctx, ACTIONS.ORDINATION_APPLY, { entityType: 'ordination', entityId: ordinationId });
-    return json({ ok: true, ordination_id: ordinationId, application_id: applicationId }, { status: 201 });
+    return json({ ok: true, ordination_id: ordinationId }, { status: 201 });
   });
 
   /* ---------------------------------------------------------- donations -- */
@@ -275,7 +317,7 @@ export function mount(r) {
     const donation = stripe.donationFromEvent(event);
     if (!donation) return json({ received: true, ignored: event.type });
 
-    // Unique (provider, provider_id) + INSERT OR IGNORE makes replays a no-op.
+    // Unique stripe_event_id + INSERT OR IGNORE makes a redelivered webhook a no-op.
     const id = await repos(db).donations.recordIfNew(donation);
     if (id) await audit(ctx, ACTIONS.DONATION_RECORDED, { entityType: 'donation', entityId: id, metadata: { type: event.type } });
     return json({ received: true, recorded: Boolean(id) });

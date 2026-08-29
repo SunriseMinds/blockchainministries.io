@@ -3,7 +3,7 @@
  *
  * Two layers of protection:
  *   1. Cloudflare Access in front of /api/admin/* (dashboard configuration).
- *   2. requireAdmin here, which re-checks profiles.role in D1 regardless.
+ *   2. requireAdmin here, which re-checks users.role in D1 regardless.
  *
  * This replaces the current arrangement, where the only real control is a
  * client-side role check plus Supabase RLS policies (risks R-03/R-04).
@@ -19,13 +19,20 @@ import { requireAdmin } from '@reellink/auth/middleware.js';
 import { randomToken } from '@reellink/security/crypto.js';
 import * as xrpl from '@reellink/xrpl/client.js';
 
-const STATUSES = ['pending', 'approved', 'rejected'];
+// Both memberships.application_status and ordinations.status share this set.
+const APPLICATION_STATUSES = ['pending', 'approved', 'rejected'];
 
 export function mount(r) {
   /* -------------------------------------------------------------- lists -- */
+  /**
+   * Kept at the old path so the (not-yet-cut-over) frontend doesn't need a
+   * simultaneous change — internally this now queries `users` directly,
+   * there is no `profiles` table. Compatibility alias, not a new feature;
+   * safe to rename to /api/admin/users whenever the frontend cutover happens.
+   */
   r.get('/api/admin/profiles', [requireAdmin], async (ctx) => {
     const db = requireDb(ctx);
-    return json({ items: await repos(db).profiles.list(val.pagination(ctx.url)) });
+    return json({ items: await repos(db).users.list(val.pagination(ctx.url)) });
   });
 
   r.get('/api/admin/donations', [requireAdmin], async (ctx) => {
@@ -58,17 +65,18 @@ export function mount(r) {
     return json({ items: await repos(db).auditLogs.list(val.pagination(ctx.url)) });
   });
 
+  /** Filters memberships by application_status. payment_status has no filter yet — no route sets or reads it. */
   r.get('/api/admin/memberships', [requireAdmin], async (ctx) => {
     const db = requireDb(ctx);
     const status = ctx.url.searchParams.get('status') || 'pending';
-    if (!STATUSES.includes(status)) throw badRequest('Invalid status filter');
+    if (!APPLICATION_STATUSES.includes(status)) throw badRequest('Invalid status filter');
     return json({ items: await repos(db).memberships.listByStatus(status, val.pagination(ctx.url)) });
   });
 
   r.get('/api/admin/ordinations', [requireAdmin], async (ctx) => {
     const db = requireDb(ctx);
     const status = ctx.url.searchParams.get('status') || 'pending';
-    if (!STATUSES.includes(status)) throw badRequest('Invalid status filter');
+    if (!APPLICATION_STATUSES.includes(status)) throw badRequest('Invalid status filter');
     return json({ items: await repos(db).ordinations.listByStatus(status, val.pagination(ctx.url)) });
   });
 
@@ -111,7 +119,7 @@ export function mount(r) {
     const transitioned = await repo.memberships.approve(ctx.params.id, {
       approvedBy: ctx.session.user_id,
     });
-    if (!transitioned) throw conflict(`Membership is already ${membership.status}`);
+    if (!transitioned) throw conflict(`Membership is already ${membership.application_status}`);
 
     // XRPL minting is intentionally NOT performed: signing has not been
     // migrated (see @reellink/xrpl). Recorded for follow-up.
