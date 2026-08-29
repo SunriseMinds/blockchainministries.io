@@ -140,10 +140,26 @@ export function mount(r) {
   });
 
   /* --------------------------------------------------------- membership -- */
+  /**
+   * Only the fields the product actually needs are returned — not the full
+   * row. `approved_by` (an internal admin user id), `application_json`, and
+   * `user_id` are deliberately withheld as admin-only/internal.
+   */
   r.get('/api/membership/mine', [requireAuth], async (ctx) => {
     const db = requireDb(ctx);
-    const membership = await repos(db).memberships.byUser(ctx.session.user_id);
-    return json({ membership: membership ?? null });
+    const m = await repos(db).memberships.byUser(ctx.session.user_id);
+    if (!m) return json({ membership: null });
+    return json({
+      membership: {
+        id: m.id,
+        membership_type: m.membership_type,
+        application_status: m.application_status,
+        payment_status: m.payment_status,
+        nft_token_id: m.nft_token_id,
+        created_at: m.created_at,
+        updated_at: m.updated_at,
+      },
+    });
   });
 
   /**
@@ -163,6 +179,9 @@ export function mount(r) {
     const db = requireDb(ctx);
     const body = await readJson(ctx.request);
     const application = buildMembershipApplication(body);
+    // Optional tier selection, same allow-list as /api/membership/join — not
+    // part of application_json (it's its own column, not free-form content).
+    const membershipType = v.oneOf(body, 'membership_type', ['free', 'paid'], { required: false });
     const repo = repos(db);
 
     const existing = await repo.memberships.byUser(ctx.session.user_id);
@@ -181,10 +200,12 @@ export function mount(r) {
     let membershipId;
     if (existing) {
       // existing.application_status === 'rejected' here (checked above).
+      // membership_type is intentionally left as originally chosen — resubmission
+      // updates the application content, not the tier.
       await repo.memberships.resubmit(existing.id, { applicationJson });
       membershipId = existing.id;
     } else {
-      membershipId = await repo.memberships.create({ userId: ctx.session.user_id, applicationJson });
+      membershipId = await repo.memberships.create({ userId: ctx.session.user_id, membershipType, applicationJson });
     }
 
     await send(ctx, { to: ctx.session.email, ...templates.applicationReceived('membership') });
