@@ -73,6 +73,21 @@ export const memberships = (db) => ({
     return (meta.changes ?? 0) === 1;
   },
 
+  /**
+   * Called ONLY from the verified Stripe webhook path — never from a client
+   * request or from admin approval. Scoped to `membership_type = 'paid'` so a
+   * free membership can never be put into a paid subscription state even if
+   * a stale/mismatched webhook somehow resolved to that user.
+   * @returns {Promise<boolean>} true if a paid membership row was updated
+   */
+  async setPaymentStatus(userId, paymentStatus) {
+    const meta = await q(db).run(
+      `UPDATE memberships SET payment_status = ?, updated_at = ? WHERE user_id = ? AND membership_type = 'paid'`,
+      [paymentStatus, nowIso(), userId],
+    );
+    return (meta.changes ?? 0) === 1;
+  },
+
   listByStatus(applicationStatus, opts) {
     const p = page(opts);
     return q(db).all(

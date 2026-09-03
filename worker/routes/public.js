@@ -343,12 +343,25 @@ export function mount(r) {
       items = [{ amountCents: v.int(body, 'amount_cents', { min: 100, max: 10_000_000 }), name: 'Donation' }];
     }
 
+    // Reuse the caller's existing Stripe customer if they have one, so a
+    // returning authenticated member doesn't accumulate a new Stripe customer
+    // on every checkout. Never derived from anything the client sends.
+    let customerId;
+    if (ctx.session?.user_id) {
+      const db = requireDb(ctx);
+      const user = await repos(db).users.byId(ctx.session.user_id);
+      customerId = user?.stripe_customer_id || undefined;
+    }
+
     const session = await stripe.createCheckoutSession(ctx, {
       mode,
       items,
       successUrl: `${origin}/donate?checkout=success`,
       cancelUrl: `${origin}/donate?checkout=cancelled`,
+      customerId,
       customerEmail: ctx.session?.email,
+      // The only identifier propagated to Stripe: the server-resolved session
+      // user id, or '' for an anonymous donor. The client never supplies this.
       metadata: { user_id: ctx.session?.user_id ?? '' },
       idempotencyKey: crypto.randomUUID(),
     });
@@ -358,19 +371,72 @@ export function mount(r) {
   /**
    * Stripe webhook. Signature-verified over the RAW body; must never be
    * behind Turnstile or session auth.
+   *
+   * Donation and subscription state are normalized and persisted
+   * independently — a pure donation event never touches `subscriptions`, and
+   * a pure subscription-lifecycle event never creates a `donations` row.
+   * `invoice.paid` is the one event that legitimately does both: it is both a
+   * receipt for that billing period AND the signal that the subscription is
+   * current — that dual role is intentional, not accidental cross-talk.
    */
   r.post('/api/webhooks/stripe', [], async (ctx) => {
     const db = requireDb(ctx);
     const raw = await ctx.request.text();
     const event = await stripe.verifyWebhookSignature(ctx, raw, ctx.request.headers.get('Stripe-Signature'));
+    const repo = repos(db);
+    const result = { received: true };
 
+    /* ---- donation side --------------------------------------------- */
     const donation = stripe.donationFromEvent(event);
-    if (!donation) return json({ received: true, ignored: event.type });
+    if (donation) {
+      // Webhook-derived amount is authoritative; guard against a malformed
+      // payload writing garbage rather than relying solely on the DB's
+      // NOT NULL constraint to fail loudly after the fact.
+      if (!Number.isInteger(donation.amountCents) || donation.amountCents < 0) {
+        console.error('[stripe webhook] malformed amount, ignoring', event.id, event.type);
+        result.donation = 'ignored_malformed';
+      } else {
+        const id = await repo.donations.recordIfNew(donation);
+        if (id) await audit(ctx, ACTIONS.DONATION_RECORDED, { entityType: 'donation', entityId: id, metadata: { type: event.type } });
+        result.donation = id ? 'recorded' : 'duplicate';
+      }
+    }
 
-    // Unique stripe_event_id + INSERT OR IGNORE makes a redelivered webhook a no-op.
-    const id = await repos(db).donations.recordIfNew(donation);
-    if (id) await audit(ctx, ACTIONS.DONATION_RECORDED, { entityType: 'donation', entityId: id, metadata: { type: event.type } });
-    return json({ received: true, recorded: Boolean(id) });
+    /* ---- subscription side ------------------------------------------ */
+    const subscriptionEvent = stripe.subscriptionEventFromEvent(event);
+    if (subscriptionEvent) {
+      const { stripeSubscriptionId, stripeCustomerId, status } = subscriptionEvent;
+      let { userId } = subscriptionEvent;
+      // invoice.payment_failed / customer.subscription.deleted carry no
+      // metadata of their own — resolve the user from the subscription row
+      // this same Stripe subscription already created.
+      if (!userId) {
+        const existingSub = await repo.subscriptions.byStripeSubscriptionId(stripeSubscriptionId);
+        userId = existingSub?.user_id ?? null;
+      }
+
+      if (userId) {
+        await repo.subscriptions.upsertFromWebhook({
+          userId, stripeSubscriptionId, stripeCustomerId, status,
+          currentPeriodEnd: subscriptionEvent.currentPeriodEnd ?? null,
+        });
+        // Keep the user's stripe_customer_id current for future checkout reuse.
+        const user = await repo.users.byId(userId);
+        if (user && user.stripe_customer_id !== stripeCustomerId) {
+          await repo.users.setStripeCustomerId(userId, stripeCustomerId);
+        }
+        // Only a 'paid' membership's payment_status is ever touched, and only
+        // from here — never by admin approval, never by a client request.
+        await repo.memberships.setPaymentStatus(userId, status);
+        result.subscription = 'synced';
+      } else {
+        console.error('[stripe webhook] subscription event with no resolvable user', event.id, stripeSubscriptionId);
+        result.subscription = 'unresolved_user';
+      }
+    }
+
+    if (!donation && !subscriptionEvent) result.ignored = event.type;
+    return json(result);
   });
 
   /* ------------------------------------------------------- consultations -- */

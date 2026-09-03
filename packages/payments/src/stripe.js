@@ -71,15 +71,25 @@ export function createPaymentIntent(ctx, { amountCents, currency = 'usd', metada
  *
  * @param {'payment'|'subscription'} mode
  * @param {Array<{price?:string, amountCents?:number, quantity?:number, name?:string}>} items
+ * @param {string} [customerId] an existing Stripe customer to bill as — pass
+ *        the caller's own `users.stripe_customer_id` when known, so a
+ *        returning member reuses one Stripe customer instead of a new one
+ *        being created on every checkout. Takes precedence over customerEmail.
  */
-export function createCheckoutSession(ctx, { mode = 'payment', items, successUrl, cancelUrl, customerEmail, metadata = {}, idempotencyKey }) {
+export function createCheckoutSession(ctx, { mode = 'payment', items, successUrl, cancelUrl, customerEmail, customerId, metadata = {}, idempotencyKey }) {
   const params = {
     mode,
     success_url: successUrl,
     cancel_url: cancelUrl,
     metadata,
   };
-  if (customerEmail) params.customer_email = customerEmail;
+  if (customerId) params.customer = customerId;
+  else if (customerEmail) params.customer_email = customerEmail;
+  // Session-level metadata does NOT propagate to the Subscription/Invoice
+  // objects a subscription-mode session creates — subscription_data.metadata
+  // must be set explicitly, or later invoice.paid/customer.subscription.*
+  // webhooks have no way to resolve which user the subscription belongs to.
+  if (mode === 'subscription') params.subscription_data = { metadata };
 
   items.forEach((item, i) => {
     if (item.price) {
@@ -132,6 +142,18 @@ export async function verifyWebhookSignature(ctx, rawBody, signatureHeader, tole
 }
 
 /**
+ * Anonymous checkouts send `metadata.user_id = ''` (see
+ * createCheckoutSession/createPaymentIntent callers), never an absent key —
+ * so `?? null` alone leaves it as `''`, which then fails
+ * `donations.user_id`'s FOREIGN KEY REFERENCES users(id) with an uncontrolled
+ * server error. Empty string must normalize to NULL (anonymous), same as if
+ * the key were absent entirely.
+ */
+function userIdOf(raw) {
+  return raw ? raw : null;
+}
+
+/**
  * Map a Stripe event to a donation row shape (used by the webhook route).
  *
  * `stripeEventId` is `event.id` — the id of the webhook DELIVERY itself,
@@ -154,7 +176,7 @@ export function donationFromEvent(event) {
         currency: obj.currency || 'usd',
         status: 'succeeded',
         receiptUrl: obj.charges?.data?.[0]?.receipt_url ?? null,
-        userId: obj.metadata?.user_id ?? null,
+        userId: userIdOf(obj.metadata?.user_id),
       };
     case 'payment_intent.payment_failed':
       return {
@@ -165,7 +187,7 @@ export function donationFromEvent(event) {
         currency: obj.currency || 'usd',
         status: 'failed',
         receiptUrl: null,
-        userId: obj.metadata?.user_id ?? null,
+        userId: userIdOf(obj.metadata?.user_id),
       };
     case 'checkout.session.completed':
       // One-off checkout. Subscriptions are recorded via invoice.paid instead,
@@ -179,7 +201,7 @@ export function donationFromEvent(event) {
         currency: obj.currency || 'usd',
         status: obj.payment_status === 'paid' ? 'succeeded' : (obj.payment_status || 'pending'),
         receiptUrl: null,
-        userId: obj.metadata?.user_id ?? null,
+        userId: userIdOf(obj.metadata?.user_id),
       };
 
     case 'invoice.paid':
@@ -192,7 +214,7 @@ export function donationFromEvent(event) {
         currency: obj.currency || 'usd',
         status: 'succeeded',
         receiptUrl: obj.hosted_invoice_url ?? null,
-        userId: obj.subscription_details?.metadata?.user_id ?? obj.metadata?.user_id ?? null,
+        userId: userIdOf(obj.subscription_details?.metadata?.user_id ?? obj.metadata?.user_id),
       };
 
     default:
@@ -215,17 +237,19 @@ export function subscriptionEventFromEvent(event) {
     case 'checkout.session.completed':
       if (obj.mode !== 'subscription' || !obj.subscription) return null;
       return {
+        stripeEventId: event.id,
         stripeSubscriptionId: obj.subscription,
         stripeCustomerId: obj.customer,
-        userId: obj.metadata?.user_id ?? null,
+        userId: userIdOf(obj.metadata?.user_id),
         status: 'active',
       };
     case 'invoice.paid':
       if (!obj.subscription) return null;
       return {
+        stripeEventId: event.id,
         stripeSubscriptionId: obj.subscription,
         stripeCustomerId: obj.customer,
-        userId: obj.subscription_details?.metadata?.user_id ?? obj.metadata?.user_id ?? null,
+        userId: userIdOf(obj.subscription_details?.metadata?.user_id ?? obj.metadata?.user_id),
         status: 'active',
         currentPeriodEnd: obj.lines?.data?.[0]?.period?.end
           ? new Date(obj.lines.data[0].period.end * 1000).toISOString()
@@ -233,9 +257,23 @@ export function subscriptionEventFromEvent(event) {
       };
     case 'invoice.payment_failed':
       if (!obj.subscription) return null;
-      return { stripeSubscriptionId: obj.subscription, stripeCustomerId: obj.customer, status: 'past_due' };
+      return {
+        stripeEventId: event.id,
+        stripeSubscriptionId: obj.subscription,
+        stripeCustomerId: obj.customer,
+        // No metadata fallback needed: the webhook route resolves the user by
+        // looking up the already-stored subscription row for this subscription id.
+        userId: null,
+        status: 'past_due',
+      };
     case 'customer.subscription.deleted':
-      return { stripeSubscriptionId: obj.id, stripeCustomerId: obj.customer, status: 'cancelled' };
+      return {
+        stripeEventId: event.id,
+        stripeSubscriptionId: obj.id,
+        stripeCustomerId: obj.customer,
+        userId: null,
+        status: 'cancelled',
+      };
     default:
       return null;
   }
