@@ -1,16 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/customSupabaseClient';
 import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { useAuth } from '@/contexts/AuthProvider';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Award, FileText, BadgeCheck, Gift, Shield, Clock, XCircle } from 'lucide-react';
+import { shouldShowApplyCta } from './membershipCta';
 
 const DashboardHome = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [membership, setMembership] = useState(null);
   const [ordinations, setOrdinations] = useState([]);
   const [donations, setDonations] = useState([]);
@@ -157,14 +161,24 @@ const DashboardHome = () => {
         {membership?.status === 'approved' && membership.nft_token_id && (
           <CardContent>
             <p className="text-sm font-bold text-yellow-200">Your Membership NFT</p>
-            <a 
-              href={`https://livenet.xrpl.org/nft/${membership.nft_token_id}`} 
-              target="_blank" 
-              rel="noopener noreferrer" 
+            <a
+              href={`https://livenet.xrpl.org/nft/${membership.nft_token_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-xs text-blue-300 break-all hover:text-yellow-400"
             >
               {membership.nft_token_id}
             </a>
+          </CardContent>
+        )}
+        {shouldShowApplyCta(membership) && (
+          <CardContent>
+            <Button
+              onClick={() => navigate('/membership/apply')}
+              className="bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-500 hover:to-amber-600 text-blue-950 font-bold"
+            >
+              <Shield className="w-4 h-4 mr-2" /> Apply for Membership
+            </Button>
           </CardContent>
         )}
       </Card>
