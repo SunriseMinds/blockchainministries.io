@@ -71,7 +71,14 @@
         "USE_D1": "true",
         "USE_KV": "true",
         "USE_WORKER_AUTH": "true",
-        "USE_NEW_API": "true"
+        "USE_NEW_API": "true",
+        // Resend, for preview verification/reset emails only (M9.1). The API
+        // key is a secret (`wrangler secret put EMAIL_API_KEY --env preview`),
+        // never a var — see packages/email/src/providers.js for the request
+        // format. EMAIL_FROM must be a sender already verified on the
+        // Blockchain Ministries Resend domain.
+        "EMAIL_PROVIDER": "resend",
+        "EMAIL_FROM": "contact@blockchainministries.io"
         // USE_R2 and USE_TURNSTILE are deliberately absent -> false (see
         // packages/core/src/flags.js `on()`). Do not add USE_R2 here until an
         // isolated preview R2 bucket exists.

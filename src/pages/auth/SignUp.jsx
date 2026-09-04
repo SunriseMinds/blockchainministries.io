@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthProvider';
+import { USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -64,6 +65,28 @@ const SignUp = () => {
           variant: "destructive",
         });
       }
+      return;
+    }
+
+    if (USE_CLOUDFLARE_API) {
+      // Cloudflare's response shape is {ok, message, email_sent} — not
+      // Supabase's {user, identities}. The account is created either way;
+      // email_sent only tells us whether the verification email itself went
+      // out, and a false value must never read as "sign up failed."
+      if (data?.email_sent === false) {
+        toast({
+          title: 'Account Created, Email Failed',
+          description: "Your account was created, but the verification email couldn't be sent. Please try again later or contact us to verify your account.",
+          variant: 'default',
+          duration: 15000,
+        });
+      } else {
+        toast({
+          title: 'Verification Email Sent',
+          description: 'Please check your inbox to verify your email and complete your covenant.',
+        });
+      }
+      navigate('/login');
       return;
     }
 

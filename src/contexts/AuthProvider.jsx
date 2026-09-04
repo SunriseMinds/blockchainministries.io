@@ -122,7 +122,13 @@ export const AuthProvider = ({ children }) => {
         return { data: null, error };
       }
     },
-    /** Mirrors the Supabase signUp({email,password,options:{data}}) call shape used by existing pages. */
+    /**
+     * Mirrors the Supabase signUp({email,password,options:{data}}) call shape
+     * used by existing pages. `data` is the Worker's raw JSON body
+     * (`{ok, message, email_sent}`) — email_sent is passed through
+     * unchanged so the caller can tell a created-but-unverifiable account
+     * apart from a fully successful signup.
+     */
     signUp: async ({ email, password, options }) => {
       try {
         const data = await api.post('/auth/signup', {
