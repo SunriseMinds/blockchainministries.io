@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/customSupabaseClient';
+import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, CheckCircle, XCircle, FileText, Award } from 'lucide-react';
 
@@ -24,6 +25,26 @@ const Verify = () => {
       setError(null);
 
       try {
+        if (USE_CLOUDFLARE_API) {
+          // A single endpoint checks both ordinations and scrolls, and
+          // already guarantees approved-only / safe-fields-only server-side
+          // (no email, no internal id, no application_json, no approved_by,
+          // no credential_r2_key) — nothing further to filter client-side.
+          try {
+            const res = await api.get(`/verify/${encodeURIComponent(slug)}`);
+            if (res.type === 'ordination') {
+              setVerificationResult({ type: 'Ordination', data: res.data });
+            } else {
+              setVerificationResult({ type: 'Scroll', data: res.data });
+            }
+          } catch (apiError) {
+            if (apiError.status === 404) setError('Verification code is invalid or has expired.');
+            else throw apiError;
+          }
+          setLoading(false);
+          return;
+        }
+
         // Check ordinations first
         let { data: ordinationData, error: ordinationError } = await supabase
           .from('ordinations')
@@ -76,9 +97,11 @@ const Verify = () => {
           <Award className="w-16 h-16 mx-auto text-yellow-400 mb-4" />
           <CardTitle className="text-2xl text-yellow-300 sacred-font">Ordination Credential Verified</CardTitle>
           <CardContent className="mt-6 text-blue-200 space-y-2">
-            <p><strong className="text-yellow-400">Minister:</strong> {data.profiles.display_name}</p>
+            <p><strong className="text-yellow-400">Minister:</strong> {data.profiles?.display_name || data.display_name}</p>
             <p><strong className="text-yellow-400">Status:</strong> <span className="text-green-400 font-bold">{data.status.toUpperCase()}</span></p>
-            <p><strong className="text-yellow-400">Date Issued:</strong> {new Date(data.updated_at).toLocaleDateString()}</p>
+            {/* Cloudflare's response has no updated_at (deliberately minimal, public-safe
+                fields only) — approved_at is the correct "date issued" there. */}
+            <p><strong className="text-yellow-400">Date Issued:</strong> {new Date(data.updated_at || data.approved_at).toLocaleDateString()}</p>
           </CardContent>
         </>
       );

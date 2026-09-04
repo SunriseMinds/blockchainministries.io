@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/customSupabaseClient';
+import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { useAuth } from '@/contexts/AuthProvider';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
@@ -19,6 +20,23 @@ const DashboardHome = () => {
     if (!user) return;
     try {
       setLoading(true);
+
+      if (USE_CLOUDFLARE_API) {
+        const [membershipRes, ordinationsRes, donationsRes] = await Promise.all([
+          api.get('/membership/mine'),
+          api.get('/ordination/mine'),
+          api.get('/donations/mine'),
+        ]);
+        // Adapt to the field name (`status`) the existing render code below
+        // already expects — the Worker's own field is `application_status`,
+        // kept separate from `payment_status` by design (see the approved
+        // membership state model).
+        setMembership(membershipRes.membership ? { ...membershipRes.membership, status: membershipRes.membership.application_status } : null);
+        setOrdinations(ordinationsRes.items || []);
+        setDonations(donationsRes.items || []);
+        return;
+      }
+
       const [membershipRes, ordinationsRes, donationsRes] = await Promise.all([
         supabase.from('memberships').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('ordinations').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
@@ -46,10 +64,40 @@ const DashboardHome = () => {
     }
   }, [user, toast]);
 
+  // Cloudflare-preview replacement for Supabase Realtime: refresh once when
+  // the tab regains focus, plus a plain interval poll (30-60s) only while the
+  // tab is visible — no WebSockets/Durable Objects, per the approved design.
+  const pollRef = useRef(null);
   useEffect(() => {
     fetchAllData();
+    if (!USE_CLOUDFLARE_API || !user) return undefined;
 
-    if (!user) return;
+    const onFocus = () => fetchAllData();
+    window.addEventListener('focus', onFocus);
+
+    const startPolling = () => {
+      if (pollRef.current) return;
+      pollRef.current = setInterval(fetchAllData, 45_000);
+    };
+    const stopPolling = () => {
+      if (!pollRef.current) return;
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+    const onVisibilityChange = () => (document.visibilityState === 'visible' ? startPolling() : stopPolling());
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    if (document.visibilityState === 'visible') startPolling();
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      stopPolling();
+    };
+  }, [user, fetchAllData]);
+
+  useEffect(() => {
+    if (USE_CLOUDFLARE_API || !user) return undefined;
     const channel = supabase
       .channel(`realtime:member-dashboard:${user.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'memberships', filter: `user_id=eq.${user.id}` }, () => fetchAllData())
@@ -189,7 +237,9 @@ const DashboardHome = () => {
                 renderItem={o => (
                   <>
                     <div className="flex justify-between items-start">
-                      <p className="font-bold text-yellow-200">{o.application_json.fullName || 'Ordination Request'}</p>
+                      {/* The Cloudflare /api/ordination/mine response deliberately omits
+                          application_json (internal) — fall back to a generic label there. */}
+                      <p className="font-bold text-yellow-200">{o.application_json?.fullName || 'Ordination Request'}</p>
                       <span className={`text-xs font-bold px-2 py-1 rounded-full ${
                         o.status === 'approved' ? 'bg-green-500/20 text-green-300' :
                         o.status === 'pending' ? 'bg-yellow-500/20 text-yellow-300' :
