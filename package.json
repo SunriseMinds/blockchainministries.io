@@ -9,7 +9,7 @@
     "preview": "vite preview --host :: --port 3000",
     "lint": "eslint . --quiet",
     "deploy": "wrangler deploy",
-    "deploy:preview": "wrangler versions upload --env preview"
+    "deploy:preview": "VITE_USE_CLOUDFLARE_API=true node tools/build.js && wrangler versions upload --env preview"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.2.1",
