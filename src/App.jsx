@@ -33,6 +33,7 @@ const VerifyEmail = lazy(() => import('@/pages/auth/VerifyEmail'));
 
 // Dashboard Pages
 const DashboardHome = lazy(() => import('@/pages/dashboard/DashboardHome'));
+const MembershipDetail = lazy(() => import('@/pages/dashboard/MembershipDetail'));
 const AdminDashboard = lazy(() => import('@/pages/admin/AdminDashboard'));
 const AdminManagement = lazy(() => import('@/pages/admin/AdminManagement'));
 
@@ -72,6 +73,7 @@ function App() {
         {/* Member Dashboard */}
         <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
           <Route index element={<DashboardHome />} />
+          <Route path="membership" element={<MembershipDetail />} />
         </Route>
 
         {/* Admin Dashboard */}
