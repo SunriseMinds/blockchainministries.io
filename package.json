@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "vite --host :: --port 3000",
-    "build": "node tools/generate-llms.js || true && node tools/set-preview-flags.js && vite build",
+    "build": "node tools/build.js",
     "preview": "vite preview --host :: --port 3000",
     "lint": "eslint . --quiet",
     "deploy": "wrangler deploy",
