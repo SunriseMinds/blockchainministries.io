@@ -49,5 +49,49 @@
       "id": "572ec235d6c94962aa265295879d837c",
       "preview_id": "c9e5125bf97f47d49c7bf53e1644ef98"
     }
-  ]
+  ],
+
+  // ---------------------------------------------------------------------------
+  // Isolated preview environment (M9.1). Workers Builds runs the "Version
+  // command" (`npm run deploy:preview` -> `wrangler versions upload --env
+  // preview`) for every non-production branch, which uploads a new VERSION of
+  // this same script — reachable only at its own <version-prefix>-
+  // blockchainministries-io.<subdomain>.workers.dev preview URL, never the
+  // production custom domain. `env.preview` below is the ONLY place these
+  // flags/bindings are turned on; the top-level config above (used by
+  // `wrangler deploy` on the `main` branch) is untouched.
+  //
+  // vars/d1_databases/kv_namespaces/r2_buckets are non-inheritable in
+  // Wrangler environments, so every one of them is repeated explicitly here
+  // rather than relying on inheritance from the top level.
+  // ---------------------------------------------------------------------------
+  "env": {
+    "preview": {
+      "vars": {
+        "USE_D1": "true",
+        "USE_KV": "true",
+        "USE_WORKER_AUTH": "true",
+        "USE_NEW_API": "true"
+        // USE_R2 and USE_TURNSTILE are deliberately absent -> false (see
+        // packages/core/src/flags.js `on()`). Do not add USE_R2 here until an
+        // isolated preview R2 bucket exists.
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "blockchain-ministries-db-preview",
+          "database_id": "88e30d07-1939-495a-8cf4-3088a2e8ef81",
+          "preview_database_id": "88e30d07-1939-495a-8cf4-3088a2e8ef81"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "RATE_LIMIT",
+          "id": "c9e5125bf97f47d49c7bf53e1644ef98"
+        }
+      ],
+      // Explicitly empty: preview must never bind the production R2 buckets.
+      "r2_buckets": []
+    }
+  }
 }
