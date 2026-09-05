@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/customSupabaseClient';
 import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { useAuth } from '@/contexts/AuthProvider';
@@ -155,11 +155,7 @@ const DashboardHome = () => {
     return (
       <Card className="bg-slate-900/50 border border-yellow-600/30 text-white">
         <CardHeader>
-          <CardTitle className={`flex items-center gap-2 ${statusColor}`}>
-            <Link to="/dashboard/membership" className="flex items-center gap-2 hover:underline">
-              {statusIcon} {statusText}
-            </Link>
-          </CardTitle>
+          <CardTitle className={`flex items-center gap-2 ${statusColor}`}>{statusIcon} {statusText}</CardTitle>
           <CardDescription className="text-blue-300">{description}</CardDescription>
         </CardHeader>
         {membership?.status === 'approved' && membership.nft_token_id && (
