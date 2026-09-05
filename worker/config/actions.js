@@ -17,4 +17,8 @@ export const ACTIONS = defineActions({
   SCROLL_REQUEST_SUBMIT: 'scroll_request.submit',
   CONSULTATION_REQUEST: 'consultation.request',
   DONATION_RECORDED: 'donation.recorded',
+  // M9.4 one-time legacy-data migration (Supabase -> D1). One row per
+  // migrated entity; entity_type/entity_id on the audit row distinguish a
+  // migrated user from a migrated contact inquiry.
+  LEGACY_DATA_MIGRATED: 'legacy_data.migrated',
 });
