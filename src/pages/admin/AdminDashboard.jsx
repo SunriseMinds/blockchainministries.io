@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/customSupabaseClient';
+import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
+import { CLOUDFLARE_ADMIN_PATH, mapAdminRow } from './adminOverview';
 import { useToast } from '@/components/ui/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -21,6 +23,12 @@ const AdminDashboard = () => {
   const fetchData = useCallback(async (table, setter) => {
     setLoading(prev => ({ ...prev, [table]: true }));
     try {
+      if (USE_CLOUDFLARE_API) {
+        const res = await api.get(CLOUDFLARE_ADMIN_PATH[table]);
+        setter((res.items || []).map((row) => mapAdminRow(table, row)));
+        return;
+      }
+
       const { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: false });
       if (error) throw error;
       setter(data);

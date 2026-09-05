@@ -2,19 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthProvider';
 import { supabase } from '@/lib/customSupabaseClient';
+import { USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { Button } from '@/components/ui/button';
 import { LogOut, LayoutDashboard, Shield, Settings } from 'lucide-react';
 import { Toaster } from "@/components/ui/toaster";
 import { cn } from '@/lib/utils';
 
 const DashboardLayout = () => {
-  const { user, signOut } = useAuth();
+  const { user, profile: cloudflareProfile, signOut } = useAuth();
   const [profile, setProfile] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
   const trustlineUrl = "https://xrpl.services?issuer=rhbwjNN6U6Zy6mzpsjWbnEg5RBy96TgiLw&currency=EFT&limit=100000000";
 
   useEffect(() => {
+    if (USE_CLOUDFLARE_API) {
+      // The Cloudflare session already carries role/display_name (read from
+      // the canonical `users` table server-side, see AuthProvider's
+      // toProfile()) — no separate profile fetch, and definitely no direct
+      // Supabase query in this path. Same convention as AdminRoute.jsx.
+      setProfile(cloudflareProfile);
+      return;
+    }
     if (user) {
       const fetchProfile = async () => {
         const { data, error } = await supabase
@@ -28,7 +37,7 @@ const DashboardLayout = () => {
       };
       fetchProfile();
     }
-  }, [user]);
+  }, [user, cloudflareProfile]);
 
   const handleLogout = async () => {
     await signOut();
