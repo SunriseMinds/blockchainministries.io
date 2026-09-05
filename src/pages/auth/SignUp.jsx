@@ -24,9 +24,12 @@ const SignUp = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    // M9.8: Cloudflare-mode accounts are passwordless (magic-link login) —
+    // no password is ever collected or sent for them. Supabase mode is
+    // unchanged and still needs one.
     const { data, error } = await signUp({
       email,
-      password,
+      ...(USE_CLOUDFLARE_API ? {} : { password }),
       options: {
         data: {
           full_name: fullName,
@@ -76,14 +79,14 @@ const SignUp = () => {
       if (data?.email_sent === false) {
         toast({
           title: 'Account Created, Email Failed',
-          description: "Your account was created, but the verification email couldn't be sent. Please try again later or contact us to verify your account.",
+          description: "Your account was created, but the login link couldn't be sent. Please try again later or contact us to access your account.",
           variant: 'default',
           duration: 15000,
         });
       } else {
         toast({
-          title: 'Verification Email Sent',
-          description: 'Please check your inbox to verify your email and complete your covenant.',
+          title: 'Login Link Sent',
+          description: 'Check your inbox for a link to log in and complete your covenant.',
         });
       }
       navigate('/login');
@@ -149,13 +152,19 @@ const SignUp = () => {
                   <Label htmlFor="email" className="text-blue-300 flex items-center"><AtSign className="w-4 h-4 mr-2"/>Email</Label>
                   <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="bg-blue-900/50 border-yellow-400/30 text-white placeholder:text-blue-300/70" placeholder="minister@domain.org" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password" className="text-blue-300 flex items-center"><KeyRound className="w-4 h-4 mr-2"/>Password</Label>
-                  <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="bg-blue-900/50 border-yellow-400/30 text-white placeholder:text-blue-300/70" placeholder="Choose a strong password" />
-                  <p className="text-xs text-blue-300/70 pt-1">
-                    Must include uppercase, lowercase, a number, and a symbol.
+                {USE_CLOUDFLARE_API ? (
+                  <p className="text-xs text-blue-300/70">
+                    No password needed — we'll email you a link to log in.
                   </p>
-                </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="password" className="text-blue-300 flex items-center"><KeyRound className="w-4 h-4 mr-2"/>Password</Label>
+                    <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="bg-blue-900/50 border-yellow-400/30 text-white placeholder:text-blue-300/70" placeholder="Choose a strong password" />
+                    <p className="text-xs text-blue-300/70 pt-1">
+                      Must include uppercase, lowercase, a number, and a symbol.
+                    </p>
+                  </div>
+                )}
                 <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-yellow-400 to-amber-600 text-blue-950 font-bold hover:from-yellow-300 hover:to-amber-500">
                   {loading ? 'Creating Covenant...' : 'Sign Up'}
                   <ShieldCheck className="ml-2 h-4 w-4"/>

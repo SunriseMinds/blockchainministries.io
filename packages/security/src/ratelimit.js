@@ -15,6 +15,9 @@ export const POLICIES = Object.freeze({
   publicForm: [5, 60 * 60],
   payment: [10, 60 * 60],
   verifyEmail: [10, 60 * 60],
+  // M9.8 — magic-link login request. Same shape as `login`: unguessable
+  // token makes brute force moot, this limit is purely abuse/cost control.
+  loginLink: [5, 15 * 60],
 });
 
 /**
