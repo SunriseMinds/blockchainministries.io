@@ -111,9 +111,24 @@ export const AuthProvider = ({ children }) => {
     loading,
     /** Re-check the session (e.g. after a route that doesn't otherwise refresh it). */
     refreshSession: loadCloudflareSession,
-    signIn: async ({ email, password }) => {
+    /**
+     * M9.8: passwordless. Requests a magic login link by email — no
+     * password exists to check. The actual session is only established
+     * later, by consumeLoginLink, once the user explicitly confirms via the
+     * emailed link (never automatically on page load — see LoginVerify.jsx).
+     */
+    requestLoginLink: async (email) => {
       try {
-        const data = await api.post('/auth/login', { email, password });
+        const data = await api.post('/auth/login-link/request', { email });
+        return { data, error: null };
+      } catch (error) {
+        return { data: null, error };
+      }
+    },
+    /** Exchanges a login-link token (from the emailed URL) for a session. */
+    consumeLoginLink: async (token) => {
+      try {
+        const data = await api.post('/auth/login-link/consume', { token });
         setSession(data);
         setUser(toUser(data.user));
         setProfile(toProfile(data.user));
@@ -124,16 +139,16 @@ export const AuthProvider = ({ children }) => {
     },
     /**
      * Mirrors the Supabase signUp({email,password,options:{data}}) call shape
-     * used by existing pages. `data` is the Worker's raw JSON body
+     * used by existing pages, but never sends a password — Cloudflare-mode
+     * accounts are passwordless (M9.8). `data` is the Worker's raw JSON body
      * (`{ok, message, email_sent}`) — email_sent is passed through
      * unchanged so the caller can tell a created-but-unverifiable account
      * apart from a fully successful signup.
      */
-    signUp: async ({ email, password, options }) => {
+    signUp: async ({ email, options }) => {
       try {
         const data = await api.post('/auth/signup', {
           email,
-          password,
           display_name: options?.data?.display_name,
         });
         return { data, error: null };

@@ -148,6 +148,8 @@ function tokenRepo(db, table) {
 // `table` is a fixed internal constant, never user input.
 export const emailVerificationTokens = (db) => tokenRepo(db, 'email_verification_tokens');
 export const passwordResetTokens = (db) => tokenRepo(db, 'password_reset_tokens');
+/** M9.8 — magic-link login tokens; same shared shape/behavior as the two above. */
+export const loginTokens = (db) => tokenRepo(db, 'login_tokens');
 
 /** All identity repositories for a database handle. */
 export function authRepos(db) {
@@ -156,5 +158,6 @@ export function authRepos(db) {
     sessions: sessions(db),
     emailVerificationTokens: emailVerificationTokens(db),
     passwordResetTokens: passwordResetTokens(db),
+    loginTokens: loginTokens(db),
   };
 }

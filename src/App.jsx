@@ -30,6 +30,7 @@ const SignUp = lazy(() => import('@/pages/auth/SignUp'));
 const ForgotPassword = lazy(() => import('@/pages/auth/ForgotPassword'));
 const UpdatePassword = lazy(() => import('@/pages/auth/UpdatePassword'));
 const VerifyEmail = lazy(() => import('@/pages/auth/VerifyEmail'));
+const LoginVerify = lazy(() => import('@/pages/auth/LoginVerify'));
 
 // Dashboard Pages
 const DashboardHome = lazy(() => import('@/pages/dashboard/DashboardHome'));
@@ -65,6 +66,7 @@ function App() {
           <Route path="forgot-password" element={<ForgotPassword />} />
           <Route path="update-password" element={<UpdatePassword />} />
           <Route path="verify-email" element={<VerifyEmail />} />
+          <Route path="login/verify" element={<LoginVerify />} />
 
           <Route path="*" element={<PagePlaceholder title="404 - Scroll Not Found" description="The page you are looking for does not exist in our archives." />} />
         </Route>

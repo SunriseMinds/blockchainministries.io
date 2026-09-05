@@ -20,10 +20,13 @@ import { AUTH_EMAIL_TEMPLATES } from './email-defaults.js';
 import { requireAuth } from './middleware.js';
 import { requireTurnstile } from '@reellink/security/turnstile-middleware.js';
 
-const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const RESET_TTL_MS = 60 * 60 * 1000; // 60m
 const LOCKOUT_THRESHOLD = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
+// M9.8 — magic-link login. Short-lived: unlike VERIFY_TTL_MS (24h, a
+// one-time account-setup step), a login link should be usable only in the
+// few minutes after the user actually requested it.
+const LOGIN_LINK_TTL_MS = 15 * 60 * 1000; // 15m
 
 function requireWorkerAuth(ctx) {
   if (!ctx.flags.USE_WORKER_AUTH) {
@@ -58,6 +61,19 @@ function sessionView(session) {
 export function mountAuthRoutes(r, options = {}) {
   const templates = { ...AUTH_EMAIL_TEMPLATES, ...(options.templates ?? {}) };
   /* ------------------------------------------------------------- signup -- */
+  /**
+   * M9.8: passwordless. Workers Free's 10ms CPU budget cannot fit any
+   * OWASP-defensible password KDF (Argon2id ~220-290ms, PBKDF2-600k
+   * ~310-385ms measured in workerd — both ~20-40x over budget), so accounts
+   * are never given a real password. `password_hash` stays NOT NULL (schema
+   * frozen) and is filled with the same unusable sentinel already used for
+   * migrated accounts — no Argon2 call happens here at all.
+   *
+   * The confirmation email doubles as the account's first login: it's a
+   * login-link token (not a separate email-verification token), and
+   * consuming it (see /api/auth/login-link/consume) marks the email
+   * verified itself — clicking a link only you received IS the proof.
+   */
   r.post('/api/auth/signup', [requireTurnstile], async (ctx) => {
     const db = requireWorkerAuth(ctx);
     const ip = clientIp(ctx.request);
@@ -65,7 +81,6 @@ export function mountAuthRoutes(r, options = {}) {
 
     const body = ctx.body;
     const email = v.email(body);
-    const password = v.password(body);
     const displayName = v.str(body, 'display_name', { required: false, max: 120 });
 
     const repo = authRepos(db);
@@ -76,23 +91,105 @@ export function mountAuthRoutes(r, options = {}) {
       return json({ ok: true, message: 'Check your email to continue.' }, { status: 202 });
     }
 
-    const userId = await repo.users.create({ email, passwordHash: await hashPassword(password), displayName });
+    const userId = await repo.users.create({ email, passwordHash: unusablePasswordHash(), displayName });
 
     const token = randomToken(32);
-    await repo.emailVerificationTokens.create({
+    await repo.loginTokens.create({
       userId,
       tokenHash: await sha256Hex(token),
-      expiresAt: new Date(Date.now() + VERIFY_TTL_MS).toISOString(),
+      expiresAt: new Date(Date.now() + LOGIN_LINK_TTL_MS).toISOString(),
     });
 
-    const link = `${siteUrl(ctx)}/verify-email?token=${token}`;
-    const mail = await send(ctx, { to: email, ...templates.verifyEmail(link) });
+    const link = `${siteUrl(ctx)}/login/verify?token=${token}`;
+    const mail = await send(ctx, { to: email, ...templates.loginLink(link) });
 
     await audit(ctx, ACTIONS.AUTH_SIGNUP, { actorUserId: userId, actorEmail: email, entityType: 'user', entityId: userId });
     return json({ ok: true, message: 'Check your email to continue.', email_sent: mail.sent }, { status: 201 });
   });
 
-  /* -------------------------------------------------------------- login -- */
+  /* ------------------------------------------------------- login (link) -- */
+  /**
+   * M9.8: the active login mechanism. Request a link, then consume it via
+   * /api/auth/login-link/consume — see that route for why consumption must
+   * never happen on a bare GET.
+   */
+  r.post('/api/auth/login-link/request', [requireTurnstile], async (ctx) => {
+    const db = requireWorkerAuth(ctx);
+    const ip = clientIp(ctx.request);
+    const email = v.email(ctx.body);
+
+    // Same dual dimension as the old password login: neither IP nor account
+    // alone is sufficient to rate-limit.
+    await enforce(ctx, 'loginLink', ip);
+    await enforce(ctx, 'loginLink', `email:${email}`);
+
+    const repo = authRepos(db);
+    const user = await repo.users.byEmail(email);
+
+    if (user && user.status === 'active') {
+      // Supersede any outstanding link — only the most recently requested
+      // one is ever valid, same convention as password_reset_tokens.
+      await repo.loginTokens.invalidateAllForUser(user.id);
+      const token = randomToken(32);
+      await repo.loginTokens.create({
+        userId: user.id,
+        tokenHash: await sha256Hex(token),
+        expiresAt: new Date(Date.now() + LOGIN_LINK_TTL_MS).toISOString(),
+      });
+      const link = `${siteUrl(ctx)}/login/verify?token=${token}`;
+      await send(ctx, { to: email, ...templates.loginLink(link) });
+    }
+
+    // Identical response whether or not the address is registered — no
+    // account enumeration, same convention as request-password-reset below.
+    return json({ ok: true, message: 'If that address has an account, a login link has been sent.' });
+  });
+
+  r.post('/api/auth/login-link/consume', [], async (ctx) => {
+    const db = requireWorkerAuth(ctx);
+    const body = await readJson(ctx.request);
+    const token = v.token(body);
+
+    const repo = authRepos(db);
+    const row = await repo.loginTokens.byTokenHash(await sha256Hex(token));
+    if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now()) {
+      throw new HttpError(400, 'invalid_token', 'This login link is invalid or has expired');
+    }
+    // Atomic single-use consumption guards against double submission /
+    // concurrent requests both trying to use the same link.
+    if (!(await repo.loginTokens.consume(row.id))) {
+      throw new HttpError(400, 'invalid_token', 'This login link has already been used');
+    }
+
+    const user = await repo.users.byId(row.user_id);
+    if (!user) throw unauthorized();
+    if (user.status !== 'active') throw forbidden('This account is not active');
+
+    // Clicking a link only this address could have received is at least as
+    // strong a proof of ownership as the separate email-verification flow.
+    if (!user.email_verified) await repo.users.markVerified(user.id);
+    await repo.users.resetFailedLogins(user.id);
+
+    const { token: sessionToken } = await issueSession(ctx, db, user.id);
+    const session = await repo.sessions.byTokenHash(await sha256Hex(sessionToken));
+    await audit(ctx, ACTIONS.AUTH_LOGIN_SUCCESS, { actorUserId: user.id, actorEmail: user.email });
+
+    return json(sessionView(session), {
+      headers: { 'Set-Cookie': buildSessionCookie(sessionToken, SESSION_TTL_SECONDS) },
+    });
+  });
+
+  /* ------------------------------------------------- login (password) -- */
+  /**
+   * RETIRED as of M9.8 — no frontend path calls this anymore (see
+   * src/contexts/AuthProvider.jsx, which now only issues login-link
+   * requests). Left in place, unmodified, only for compatibility with any
+   * pre-existing password-holding account and as a historical reference —
+   * it is not linked from any UI and is not the supported way to log in.
+   * password_hash is Argon2id-verified here exactly as before; this is
+   * exactly the CPU-expensive path M9.5/M9.6 proved does not fit Workers
+   * Free, which is *why* it was retired, not despite it.
+   */
   r.post('/api/auth/login', [requireTurnstile], async (ctx) => {
     const db = requireWorkerAuth(ctx);
     const ip = clientIp(ctx.request);
