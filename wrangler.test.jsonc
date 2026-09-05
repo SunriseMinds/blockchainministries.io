@@ -1,0 +1,45 @@
+{
+  // =========================================================================
+  // LOCAL TESTING ONLY — NOT FOR DEPLOYMENT.
+  //
+  // Enables the parallel Cloudflare backend flags so `wrangler dev --local`
+  // can exercise /api/* against a local D1/R2/KV. Contains NO real secrets
+  // and NO real resource ids.
+  //
+  // The worker `name` is deliberately DIFFERENT from production
+  // (blockchainministries-io) so an accidental
+  //   wrangler deploy --config wrangler.test.jsonc
+  // creates a separate throwaway Worker instead of overwriting the live site.
+  //
+  // Usage:
+  //   wrangler d1 migrations apply blockchain-ministries-db --local \
+  //     --config wrangler.test.jsonc --persist-to .wrangler-test
+  //   wrangler dev --local --config wrangler.test.jsonc --persist-to .wrangler-test
+  // =========================================================================
+  "name": "blockchainministries-io-localtest",
+  "compatibility_date": "2025-01-01",
+  "main": "worker/index.js",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "vars": {
+    "USE_D1": "true",
+    "USE_R2": "true",
+    "USE_WORKER_AUTH": "true",
+    "USE_TURNSTILE": "false",
+    "USE_NEW_API": "true",
+    "SITE_URL": "http://127.0.0.1:8788",
+    "SESSION_PEPPER": "local-test-only-not-a-secret",
+    "XRPL_NETWORK": "testnet"
+    // XRPL_SEED is intentionally NOT stored here. No seed — not even a public
+    // test seed — belongs in a committed file. To exercise the signer locally:
+    //   XRPL_SEED=<testnet seed> XRPL_SIGNING_ENABLED=true \
+    //     wrangler dev --local --config wrangler.test.jsonc
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "blockchain-ministries-db", "database_id": "local-test" }
+  ],
+  "r2_buckets": [
+    { "binding": "PUBLIC_FILES", "bucket_name": "bm-public" },
+    { "binding": "PROTECTED_FILES", "bucket_name": "bm-protected" }
+  ],
+  "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "local-test-kv" }]
+}

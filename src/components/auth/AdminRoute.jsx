@@ -2,14 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthProvider';
 import { supabase } from '@/lib/customSupabaseClient';
+import { USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 
 const AdminRoute = ({ children }) => {
-  const { session, user, loading: authLoading } = useAuth();
+  // The Cloudflare session response already carries `role` (read from the
+  // canonical `users` table server-side) — no separate profile fetch needed,
+  // and definitely no direct Supabase query in this path.
+  const { session, user, profile: cloudflareProfile, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const location = useLocation();
 
   useEffect(() => {
+    if (USE_CLOUDFLARE_API) {
+      setProfile(cloudflareProfile);
+      setProfileLoading(false);
+      return;
+    }
     if (user) {
       const fetchProfile = async () => {
         setProfileLoading(true);
@@ -18,7 +27,7 @@ const AdminRoute = ({ children }) => {
           .select('role')
           .eq('id', user.id)
           .single();
-        
+
         if (data) {
           setProfile(data);
         }
@@ -28,7 +37,7 @@ const AdminRoute = ({ children }) => {
     } else if (!authLoading) {
       setProfileLoading(false);
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, cloudflareProfile]);
 
   const loading = authLoading || profileLoading;
 

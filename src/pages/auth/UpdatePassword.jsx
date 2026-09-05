@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthProvider';
+import { USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,8 +17,24 @@ const UpdatePassword = () => {
   const { updatePassword, session } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  // The Cloudflare flow is token-based (the emailed link carries a one-time
+  // token in the URL) rather than Supabase's authenticated recovery-session
+  // model, so there is no `session` to gate on in that path.
+  const resetToken = USE_CLOUDFLARE_API ? searchParams.get('token') : null;
 
   useEffect(() => {
+    if (USE_CLOUDFLARE_API) {
+      if (!resetToken) {
+        toast({
+          title: "Invalid Link",
+          description: "This password reset link is missing or malformed. Please request a new one.",
+          variant: "destructive",
+        });
+        navigate('/forgot-password');
+      }
+      return;
+    }
     // The onAuthStateChange listener in AuthProvider handles session changes.
     // We just need to check if the user is logged in when the component mounts.
     if (!session && !loading) {
@@ -28,12 +45,12 @@ const UpdatePassword = () => {
       });
       navigate('/login');
     }
-  }, [session, loading, navigate, toast]);
+  }, [session, loading, navigate, toast, resetToken]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await updatePassword(password);
+    const { error } = await updatePassword(password, resetToken);
     if (error) {
       toast({
         title: "Error",

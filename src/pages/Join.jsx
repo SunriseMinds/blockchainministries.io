@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/lib/customSupabaseClient';
+import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { loadStripe } from '@stripe/stripe-js';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
@@ -47,6 +48,31 @@ const Join = () => {
     setLoading(true);
 
     try {
+      if (USE_CLOUDFLARE_API) {
+        // The Cloudflare-native signup+membership+payment flow is
+        // deliberately NOT a single atomic call the way the old Supabase
+        // `join-membership` function was: /api/auth/signup does not
+        // establish a session, and membership/checkout endpoints require a
+        // verified email first (requireVerifiedEmail). Weakening either of
+        // those to force a one-shot flow was not authorized in M8, so the
+        // preview path performs signup only here; completing membership
+        // (and, for the paid tier, checkout) is a separate follow-up step
+        // once the user has verified their email and logged in — see the
+        // M8 report for the documented later-milestone UI work this implies.
+        await api.post('/auth/signup', {
+          email: formData.email,
+          password: formData.password,
+          display_name: `${formData.firstName} ${formData.lastName}`.trim(),
+        });
+        setSubmitted(true);
+        toast({
+          title: 'Welcome!',
+          description: 'Please check your email to verify your account, then log in to complete your membership.',
+          className: 'bg-green-800 text-white',
+        });
+        return;
+      }
+
       const { data, error } = await supabase.functions.invoke('join-membership', {
         body: {
           firstName: formData.firstName,
@@ -58,7 +84,7 @@ const Join = () => {
       });
 
       if (error) throw new Error(error.message);
-      
+
       if (membershipType === 'paid' && data.sessionId) {
         toast({
           title: 'Redirecting to Payment...',

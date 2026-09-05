@@ -1,0 +1,18 @@
+{
+  // The Original Vault — Reellink Cloud Platform application.
+  // Flags are intentionally ABSENT: an unset flag is false, so a fresh
+  // deployment serves static assets and keeps /api/* disabled until enabled.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "the-original-vault",
+  "compatibility_date": "2025-01-01",
+  "main": "src/worker.js",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "the-original-vault-db", "database_id": "<create with: wrangler d1 create the-original-vault-db>" }
+  ],
+  "r2_buckets": [
+    { "binding": "PUBLIC_FILES", "bucket_name": "the-original-vault-public" },
+    { "binding": "PROTECTED_FILES", "bucket_name": "the-original-vault-protected" }
+  ],
+  "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "<create with: wrangler kv namespace create the-original-vault-rate-limit>" }]
+}

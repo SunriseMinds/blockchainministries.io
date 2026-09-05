@@ -19,3 +19,11 @@ public/llms.txt
 .claude/
 .DS_Store
 *.log
+# local wrangler test state
+.wrangler-test/
+
+# migration working state (contains member PII — never commit)
+.migration/
+
+# app build output
+apps/*/dist/

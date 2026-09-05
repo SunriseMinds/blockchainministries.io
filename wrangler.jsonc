@@ -19,5 +19,110 @@
     "directory": "./dist",
     // Binding used by worker/index.js to serve index.html for client-side routes.
     "binding": "ASSETS"
+  },
+
+  // ---------------------------------------------------------------------------
+  // Parallel Cloudflare backend bindings (Phase 2D), now ON for production
+  // (M9.3 — repository-side production cutover prep; the *dashboard* actions
+  // in the M9.2 report — secrets, custom-domain re-verification after
+  // deploying this config — are still required separately and are NOT done
+  // by this file). USE_R2 and USE_TURNSTILE remain deliberately ABSENT (an
+  // absent flag is false, same convention as env.preview below) — do not add
+  // either until an approved production R2/Turnstile rollout is scoped.
+  // ---------------------------------------------------------------------------
+  "vars": {
+    "USE_D1": "true",
+    "USE_KV": "true",
+    "USE_WORKER_AUTH": "true",
+    "USE_NEW_API": "true",
+    // Canonical production origin. Falls back to the request's own origin
+    // when unset (packages/auth/src/routes.js `siteUrl()`), so this is a
+    // clarity improvement, not a hard requirement — but being explicit here
+    // means verification/reset email links are provably correct regardless
+    // of which host header a request happens to arrive with.
+    "SITE_URL": "https://blockchainministries.io",
+    // Resend, for production signup-verification/password-reset emails.
+    // EMAIL_FROM must be a sender already verified on the Blockchain
+    // Ministries Resend domain — this repeats the exact address already
+    // live on the preview sender (see env.preview below), not a new one.
+    // The API key itself is a secret, NEVER a var — before cutover, run:
+    //   wrangler secret put EMAIL_API_KEY
+    // (no --env flag: production is this top-level/default environment).
+    // Not run by this change — requires separate, explicit authorization.
+    "EMAIL_PROVIDER": "resend",
+    "EMAIL_FROM": "contact@blockchainministries.io"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "blockchain-ministries-db",
+      "database_id": "1aebe562-6eff-4910-b5c0-450bcc1ea19d",
+      // Used by `wrangler dev` and preview deployments.
+      "preview_database_id": "88e30d07-1939-495a-8cf4-3088a2e8ef81"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "PUBLIC_FILES", "bucket_name": "bm-public" },
+    { "binding": "PROTECTED_FILES", "bucket_name": "bm-protected" }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "RATE_LIMIT",
+      "id": "572ec235d6c94962aa265295879d837c",
+      "preview_id": "c9e5125bf97f47d49c7bf53e1644ef98"
+    }
+  ],
+
+  // ---------------------------------------------------------------------------
+  // Isolated preview environment (M9.1). Workers Builds runs the "Version
+  // command" (`npm run deploy:preview` -> `wrangler versions upload --env
+  // preview`) for every non-production branch, which uploads a new VERSION of
+  // this same script — reachable only at its own <version-prefix>-
+  // blockchainministries-io.<subdomain>.workers.dev preview URL, never the
+  // production custom domain. `env.preview` below binds its OWN isolated D1/
+  // KV/R2 resources (the *-preview ids), kept entirely separate from the
+  // top-level config above (used by `wrangler deploy` on the `main` branch),
+  // which as of M9.3 has the same feature flags on but points at the real
+  // production D1/KV/R2 resources — never these preview ones.
+  //
+  // vars/d1_databases/kv_namespaces/r2_buckets are non-inheritable in
+  // Wrangler environments, so every one of them is repeated explicitly here
+  // rather than relying on inheritance from the top level.
+  // ---------------------------------------------------------------------------
+  "env": {
+    "preview": {
+      "vars": {
+        "USE_D1": "true",
+        "USE_KV": "true",
+        "USE_WORKER_AUTH": "true",
+        "USE_NEW_API": "true",
+        // Resend, for preview verification/reset emails only (M9.1). The API
+        // key is a secret (`wrangler secret put EMAIL_API_KEY --env preview`),
+        // never a var — see packages/email/src/providers.js for the request
+        // format. EMAIL_FROM must be a sender already verified on the
+        // Blockchain Ministries Resend domain.
+        "EMAIL_PROVIDER": "resend",
+        "EMAIL_FROM": "contact@blockchainministries.io"
+        // USE_R2 and USE_TURNSTILE are deliberately absent -> false (see
+        // packages/core/src/flags.js `on()`). Do not add USE_R2 here until an
+        // isolated preview R2 bucket exists.
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "blockchain-ministries-db-preview",
+          "database_id": "88e30d07-1939-495a-8cf4-3088a2e8ef81",
+          "preview_database_id": "88e30d07-1939-495a-8cf4-3088a2e8ef81"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "RATE_LIMIT",
+          "id": "c9e5125bf97f47d49c7bf53e1644ef98"
+        }
+      ],
+      // Explicitly empty: preview must never bind the production R2 buckets.
+      "r2_buckets": []
+    }
   }
 }

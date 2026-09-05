@@ -1,0 +1,27 @@
+{
+  // <APP_NAME> — Reellink Cloud Platform application.
+  //
+  // Feature flags are deliberately ABSENT. An unset variable is false, so a
+  // fresh deployment serves static assets with /api/* disabled until you
+  // enable flags one at a time in the dashboard.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "<app-slug>",
+  "compatibility_date": "2025-01-01",
+  "main": "src/worker.js",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "<app-slug>-db",
+      "database_id": "<from: wrangler d1 create <app-slug>-db>",
+      "preview_database_id": "<from: wrangler d1 create <app-slug>-db-preview>"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "PUBLIC_FILES", "bucket_name": "<app-slug>-public" },
+    { "binding": "PROTECTED_FILES", "bucket_name": "<app-slug>-protected" }
+  ],
+  "kv_namespaces": [
+    { "binding": "RATE_LIMIT", "id": "<from: wrangler kv namespace create <app-slug>-rate-limit>" }
+  ]
+}

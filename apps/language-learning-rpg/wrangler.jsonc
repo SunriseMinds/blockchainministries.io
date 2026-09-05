@@ -1,0 +1,18 @@
+{
+  // Language Learning RPG — Reellink Cloud Platform application.
+  // Flags are intentionally ABSENT: an unset flag is false, so a fresh
+  // deployment serves static assets and keeps /api/* disabled until enabled.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "language-learning-rpg",
+  "compatibility_date": "2025-01-01",
+  "main": "src/worker.js",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "language-learning-rpg-db", "database_id": "<create with: wrangler d1 create language-learning-rpg-db>" }
+  ],
+  "r2_buckets": [
+    { "binding": "PUBLIC_FILES", "bucket_name": "language-learning-rpg-public" },
+    { "binding": "PROTECTED_FILES", "bucket_name": "language-learning-rpg-protected" }
+  ],
+  "kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "<create with: wrangler kv namespace create language-learning-rpg-rate-limit>" }]
+}

@@ -123,9 +123,17 @@ On the temporary `*.workers.dev` URL:
 7. Console clean; `favicon.svg`, `robots.txt`, `sitemap.xml`, `_headers` apply.
 8. Mobile + desktop.
 
-## Custom domain (LATER — do not attach yet)
-Do not attach `blockchainministries.io` or change DNS until the temporary deployment
-is tested and approved. Hostinger stays live as fallback.
+## Custom domain (status: ALREADY ATTACHED)
+This section originally said "do not attach yet, Hostinger stays live as fallback" —
+that plan predates the actual cutover. As of M9.2/M9.3, `blockchainministries.io` is
+confirmed (by direct HTTP request, not assumption) to already resolve through
+Cloudflare to this Worker/assets deployment — Hostinger is **not** the live web
+origin anymore. Any remaining Hostinger dependency is mail-only and unverified from
+this repo; see the M9.2 report's Hostinger Retirement section before touching it.
+
+Do not change DNS or the custom-domain binding as part of routine backend work —
+see `docs/ROLLBACK_PLAN.md` for the actual flag-based cutover/rollback lever, which
+does not require any DNS change in either direction.
 
 ## Quick reference
 ```
@@ -139,5 +147,5 @@ Node version:            22     (set NODE_VERSION=22 env var; .nvmrc not auto-re
 Output directory:        ./dist  (via wrangler.jsonc assets.directory)
 SPA fallback:            worker/index.js (routes -> index.html; missing files -> 404)
 Headers:                 public/_headers
-Custom domain:           attach later, after approval
+Custom domain:           already attached (see note above) — not a pending cutover step
 ```

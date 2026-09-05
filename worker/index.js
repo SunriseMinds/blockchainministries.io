@@ -1,22 +1,40 @@
 /**
- * Static-asset Worker for the Blockchain Ministries React 18 + Vite SPA.
+ * Worker entry for the Blockchain Ministries React 18 + Vite SPA.
  *
- * Built assets in ./dist are served directly by Cloudflare's static-assets layer
- * BEFORE this Worker runs. This handler is therefore invoked only for requests
- * that do NOT match a built asset, and implements SPA-aware fallback:
+ * Two responsibilities, in order:
  *
- *   - A path that looks like a file (its last segment contains a ".") is treated
- *     as a missing asset and returns a genuine 404 — so broken asset references
- *     are surfaced, not silently masked by index.html.
- *   - Any other path is a client-side route (React Router), so index.html is
- *     served (HTTP 200) to make deep links and refreshes work.
+ *  1. /api/*  → the parallel Cloudflare backend (D1 / R2 / Workers auth).
+ *               Entirely feature-flagged; with USE_NEW_API unset it returns
+ *               503 and touches nothing else. The production site does not
+ *               call /api/* today (the SPA talks to Supabase directly), so
+ *               mounting it cannot affect current behaviour.
  *
- * No application/server logic lives here — this is routing only. Backend APIs
- * (D1/R2/Workers) are a separate, later phase.
+ *  2. everything else → the existing SPA routing, unchanged:
+ *     built assets in ./dist are served by Cloudflare's static-assets layer
+ *     BEFORE this Worker runs, so this handler only sees requests that did
+ *     not match an asset. A path that looks like a file (last segment
+ *     contains a ".") is a missing asset → genuine 404, so broken asset
+ *     references stay visible. Anything else is a client-side route →
+ *     index.html (200) so deep links and refreshes work.
  */
+import { getFlags } from '@reellink/core/flags.js';
+import { handleApi } from './routes/index.js';
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, executionCtx) {
     const url = new URL(request.url);
+
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      return handleApi({
+        request,
+        env,
+        url,
+        flags: getFlags(env),
+        executionCtx,
+        waitUntil: (p) => executionCtx?.waitUntil?.(p),
+      });
+    }
+
     const lastSegment = url.pathname.split('/').pop() || '';
 
     // Missing file-like request -> real 404 (do not hide asset errors).

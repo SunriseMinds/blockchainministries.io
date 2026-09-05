@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthProvider';
 import { supabase } from '@/lib/customSupabaseClient';
+import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,14 +37,22 @@ const MembershipApply = () => {
     }
     setLoading(true);
     try {
-      const { error } = await supabase.functions.invoke('apply-for-membership', {
-        body: {
+      if (USE_CLOUDFLARE_API) {
+        // Server derives the applicant from the session cookie; only the
+        // validated form fields are sent — never a user id or status.
+        await api.post('/membership/apply', {
           displayName: formData.displayName,
           walletXrpl: formData.walletXrpl,
-        },
-      });
-
-      if (error) throw error;
+        });
+      } else {
+        const { error } = await supabase.functions.invoke('apply-for-membership', {
+          body: {
+            displayName: formData.displayName,
+            walletXrpl: formData.walletXrpl,
+          },
+        });
+        if (error) throw error;
+      }
 
       setSubmitted(true);
       toast({

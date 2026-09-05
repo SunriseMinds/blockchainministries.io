@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/customSupabaseClient';
+import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { useToast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,6 +19,18 @@ const AdminManagement = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      if (USE_CLOUDFLARE_API) {
+        // requireAdmin re-checks users.role in D1 server-side regardless of
+        // what the client believes — a member session gets a 403 here.
+        const [membershipsRes, ordinationsRes] = await Promise.all([
+          api.get('/admin/memberships?status=pending'),
+          api.get('/admin/ordinations?status=pending'),
+        ]);
+        setPendingMemberships(membershipsRes.items || []);
+        setPendingOrdinations(ordinationsRes.items || []);
+        return;
+      }
+
       const [membershipsRes, ordinationsRes] = await Promise.all([
         supabase.from('memberships').select('*, profiles(display_name), users(email)').eq('status', 'pending'),
         supabase.from('ordinations').select('*, profiles(display_name), users(email)').eq('status', 'pending')
@@ -43,13 +56,21 @@ const AdminManagement = () => {
   const handleApproveMembership = async (membershipId) => {
     setProcessingId(membershipId);
     try {
-      const { error } = await supabase.functions.invoke('admin-approve-membership', {
-        body: { membership_id: membershipId },
-      });
-      if (error) throw error;
-      toast({ title: 'Membership Approved', description: 'NFT minted and status updated.', className: 'bg-green-800 text-white' });
+      if (USE_CLOUDFLARE_API) {
+        // approved_by is derived from the admin's own session server-side —
+        // never sent by the client.
+        await api.post(`/admin/memberships/${membershipId}/approve`);
+      } else {
+        const { error } = await supabase.functions.invoke('admin-approve-membership', {
+          body: { membership_id: membershipId },
+        });
+        if (error) throw error;
+      }
+      toast({ title: 'Membership Approved', description: 'Status updated.', className: 'bg-green-800 text-white' });
       fetchData();
     } catch (error) {
+      // error.message already carries a safe, specific reason for 403/404/409
+      // (e.g. "Membership is already approved") — surfaced as-is.
       toast({ title: 'Approval Error', description: error.message, variant: 'destructive' });
     } finally {
       setProcessingId(null);
@@ -59,11 +80,16 @@ const AdminManagement = () => {
   const handleApproveOrdination = async (ordinationId) => {
     setProcessingId(ordinationId);
     try {
-      const { error } = await supabase.functions.invoke('admin-approve-ordination', {
-        body: { ordination_id: ordinationId },
-      });
-      if (error) throw error;
-      toast({ title: 'Ordination Approved', description: 'Credential generated and status updated.', className: 'bg-green-800 text-white' });
+      if (USE_CLOUDFLARE_API) {
+        await api.post(`/admin/ordinations/${ordinationId}/approve`);
+        toast({ title: 'Ordination Approved', description: 'Status updated. Credential generation is not yet available.', className: 'bg-green-800 text-white' });
+      } else {
+        const { error } = await supabase.functions.invoke('admin-approve-ordination', {
+          body: { ordination_id: ordinationId },
+        });
+        if (error) throw error;
+        toast({ title: 'Ordination Approved', description: 'Credential generated and status updated.', className: 'bg-green-800 text-white' });
+      }
       fetchData();
     } catch (error) {
       toast({ title: 'Approval Error', description: error.message, variant: 'destructive' });
@@ -72,11 +98,16 @@ const AdminManagement = () => {
     }
   };
 
-  const handleReject = async (table, id) => {
+  const handleReject = async (type, id) => {
     setProcessingId(id);
     try {
-      const { error } = await supabase.from(table).update({ status: 'rejected' }).eq('id', id);
-      if (error) throw error;
+      if (USE_CLOUDFLARE_API) {
+        await api.post(`/admin/${type === 'membership' ? 'memberships' : 'ordinations'}/${id}/reject`);
+      } else {
+        const table = type === 'membership' ? 'memberships' : 'ordinations';
+        const { error } = await supabase.from(table).update({ status: 'rejected' }).eq('id', id);
+        if (error) throw error;
+      }
       toast({ title: 'Application Rejected', description: 'Status has been updated.', className: 'bg-yellow-800 text-white' });
       fetchData();
     } catch (error) {
@@ -88,8 +119,8 @@ const AdminManagement = () => {
 
   const renderApplicationCard = (item, type) => {
     const isProcessing = processingId === item.id;
-    const email = item.users?.email || 'N/A';
-    const displayName = item.profiles?.display_name || 'N/A';
+    const email = (USE_CLOUDFLARE_API ? item.email : item.users?.email) || 'N/A';
+    const displayName = (USE_CLOUDFLARE_API ? item.display_name : item.profiles?.display_name) || 'N/A';
 
     return (
       <motion.div
@@ -121,7 +152,7 @@ const AdminManagement = () => {
               size="sm"
               variant="outline"
               className="border-red-500 text-red-400 hover:bg-red-500/10 hover:text-red-300"
-              onClick={() => handleReject(type === 'membership' ? 'memberships' : 'ordinations', item.id)}
+              onClick={() => handleReject(type, item.id)}
               disabled={isProcessing}
             >
               {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
@@ -129,14 +160,21 @@ const AdminManagement = () => {
             </Button>
           </div>
         </div>
-        {type === 'ordination' && (
-          <div className="mt-4 p-3 bg-slate-900/70 rounded-md text-sm">
-            <p className="font-semibold text-yellow-400">Reason:</p>
-            <p className="text-blue-200 whitespace-pre-wrap">{item.application_json.reason}</p>
-            <p className="font-semibold text-yellow-400 mt-2">Experience:</p>
-            <p className="text-blue-200 whitespace-pre-wrap">{item.application_json.experience}</p>
-          </div>
-        )}
+        {type === 'ordination' && (() => {
+          // D1 stores application_json as TEXT (no native JSON type, unlike
+          // Supabase's jsonb, which the client already deserializes).
+          const application = USE_CLOUDFLARE_API
+            ? (() => { try { return JSON.parse(item.application_json); } catch { return {}; } })()
+            : item.application_json;
+          return (
+            <div className="mt-4 p-3 bg-slate-900/70 rounded-md text-sm">
+              <p className="font-semibold text-yellow-400">Reason:</p>
+              <p className="text-blue-200 whitespace-pre-wrap">{application.reason}</p>
+              <p className="font-semibold text-yellow-400 mt-2">Experience:</p>
+              <p className="text-blue-200 whitespace-pre-wrap">{application.experience}</p>
+            </div>
+          );
+        })()}
       </motion.div>
     );
   };
