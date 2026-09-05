@@ -76,7 +76,7 @@ export const users = (db) => ({
   list(opts) {
     const p = page(opts);
     return q(db).all(
-      `SELECT id, role, display_name, email, email_verified, created_at
+      `SELECT id, role, display_name, email, email_verified, wallet_xrpl, created_at
          FROM users
         ORDER BY created_at DESC${p.clause}`,
       p.params,

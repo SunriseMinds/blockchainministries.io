@@ -99,6 +99,18 @@ export const memberships = (db) => ({
       [applicationStatus, ...p.params],
     );
   },
+
+  /** Admin overview only — every status, not just one. Mirrors scrolls.listAll(). */
+  listAll(opts) {
+    const p = page(opts);
+    return q(db).all(
+      `SELECT m.*, u.display_name, u.email
+         FROM memberships m
+         JOIN users u ON u.id = m.user_id
+        ORDER BY m.created_at DESC${p.clause}`,
+      p.params,
+    );
+  },
 });
 
 /* ------------------------------------------------------------ ordinations -- */
@@ -178,6 +190,18 @@ export const ordinations = (db) => ({
         WHERE o.status = ?
         ORDER BY o.created_at DESC${p.clause}`,
       [status, ...p.params],
+    );
+  },
+
+  /** Admin overview only — every status, not just one. Mirrors scrolls.listAll(). */
+  listAll(opts) {
+    const p = page(opts);
+    return q(db).all(
+      `SELECT o.*, u.display_name, u.email
+         FROM ordinations o
+         JOIN users u ON u.id = o.user_id
+        ORDER BY o.created_at DESC${p.clause}`,
+      p.params,
     );
   },
 });

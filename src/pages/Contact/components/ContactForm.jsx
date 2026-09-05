@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/use-toast";
 import { Send } from "lucide-react";
 import { supabase } from "@/lib/customSupabaseClient";
+import { api, USE_CLOUDFLARE_API } from "@/lib/cloudflareApi";
 
 const ContactForm = () => {
   const { toast } = useToast();
@@ -41,11 +42,16 @@ const ContactForm = () => {
 
     try {
       const { name, email, inquiryType, message } = formData;
-      const { error } = await supabase
-        .from("contact_inquiries")
-        .insert([{ name, email, message, inquiry_type: inquiryType }]);
 
-      if (error) throw error;
+      if (USE_CLOUDFLARE_API) {
+        await api.post("/contact", { name, email, message, inquiry_type: inquiryType });
+      } else {
+        const { error } = await supabase
+          .from("contact_inquiries")
+          .insert([{ name, email, message, inquiry_type: inquiryType }]);
+
+        if (error) throw error;
+      }
 
       toast({
         title: "✉️ Message Sent!",

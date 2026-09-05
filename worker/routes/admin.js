@@ -65,10 +65,15 @@ export function mount(r) {
     return json({ items: await repos(db).auditLogs.list(val.pagination(ctx.url)) });
   });
 
-  /** Filters memberships by application_status. payment_status has no filter yet — no route sets or reads it. */
+  /**
+   * Filters memberships by application_status; `status=all` (the M10.1 admin
+   * overview) skips the filter entirely instead of picking one status.
+   * payment_status has no filter yet — no route sets or reads it.
+   */
   r.get('/api/admin/memberships', [requireAdmin], async (ctx) => {
     const db = requireDb(ctx);
     const status = ctx.url.searchParams.get('status') || 'pending';
+    if (status === 'all') return json({ items: await repos(db).memberships.listAll(val.pagination(ctx.url)) });
     if (!APPLICATION_STATUSES.includes(status)) throw badRequest('Invalid status filter');
     return json({ items: await repos(db).memberships.listByStatus(status, val.pagination(ctx.url)) });
   });
@@ -76,6 +81,7 @@ export function mount(r) {
   r.get('/api/admin/ordinations', [requireAdmin], async (ctx) => {
     const db = requireDb(ctx);
     const status = ctx.url.searchParams.get('status') || 'pending';
+    if (status === 'all') return json({ items: await repos(db).ordinations.listAll(val.pagination(ctx.url)) });
     if (!APPLICATION_STATUSES.includes(status)) throw badRequest('Invalid status filter');
     return json({ items: await repos(db).ordinations.listByStatus(status, val.pagination(ctx.url)) });
   });
