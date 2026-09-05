@@ -11,15 +11,23 @@ Supersedes `MIGRATION_ROLLBACK_PLAN.md` (Phase 1 draft) with the real inventory 
 5. **DNS is not changed** by this phase; the site already serves from Cloudflare Workers.
 
 ## Primary rollback lever — the backend feature flag
+The actual shipped flag is `VITE_USE_CLOUDFLARE_API` (see `src/lib/cloudflareApi.js`), not the
+`VITE_BACKEND` name this plan originally used — corrected here, M9.3:
 ```
-VITE_BACKEND = "supabase"   # current production (default)
-VITE_BACKEND = "cloudflare" # new D1/Workers backend
+VITE_USE_CLOUDFLARE_API=false  # Supabase backend (production default until cutover)
+VITE_USE_CLOUDFLARE_API=true   # D1/Workers backend
 ```
-Both clients ship in the bundle during transition. Rolling back is a **config change and redeploy**,
-not a code revert: set `VITE_BACKEND=supabase`, trigger a Workers Build, done in minutes.
+Both clients ship in the bundle during transition (every `if (USE_CLOUDFLARE_API) {...} else {...}`
+call site in `src/`). Rolling back is a **config change and redeploy**, not a code revert.
 
-Testing happens on a preview deployment with `VITE_BACKEND=cloudflare` while production stays on
-`supabase`.
+As of M9.3, this flag is no longer hand-set per deploy — `tools/set-preview-flags.js` writes it
+deterministically for every Workers Builds CI run (preview *and* production), and a local/manual
+build never sets it (stays on Supabase by default). To roll back after cutover, the flag itself
+isn't what you'd hand-edit; you'd instead revert the production Worker to the previous version
+(Cloudflare dashboard/`wrangler rollback`), which naturally restores its pre-cutover build.
+
+Testing happens on a preview deployment (`VITE_USE_CLOUDFLARE_API=true`, automatic) while production
+stays on Supabase (`false`, automatic) until the `main` branch is actually promoted.
 
 ## Rollback triggers
 - Any validation check (V1–V11, R1–R8) fails after cutover.
@@ -33,8 +41,9 @@ Testing happens on a preview deployment with `VITE_BACKEND=cloudflare` while pro
 ## Procedure
 
 ### Level 1 — Flag flip (minutes; covers almost everything)
-1. Set `VITE_BACKEND=supabase` in the Workers Build environment.
-2. Redeploy (`npm run build` + `npm run deploy`).
+1. Roll the production Worker back to the pre-cutover version (fastest — no rebuild needed), or
+   set `VITE_USE_CLOUDFLARE_API=false` for the production build environment and redeploy.
+2. Redeploy (`npm run build` + `npm run deploy`), if not using a version rollback.
 3. Verify home, login, dashboard, contact form, `/verify/:slug` against Supabase.
 4. Supabase was never modified, so it is immediately authoritative again.
 
@@ -83,8 +92,9 @@ the owner signs off after the soak period.** Deleting Supabase is the one action
 that is genuinely irreversible.
 
 ## Rollback rehearsal (required before cutover)
-1. Deploy preview with `VITE_BACKEND=cloudflare`.
+1. Deploy preview (`VITE_USE_CLOUDFLARE_API=true`, automatic per `tools/set-preview-flags.js`).
 2. Exercise the critical flows.
-3. Flip to `supabase`, redeploy, confirm full recovery.
+3. Roll back (previous Worker version, or flip to `VITE_USE_CLOUDFLARE_API=false` and redeploy),
+   confirm full recovery.
 4. Time the round trip and record it.
 5. Only then request cutover approval.

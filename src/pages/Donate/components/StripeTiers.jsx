@@ -110,9 +110,14 @@ const StripeTiers = () => {
         });
       }
     } catch (error) {
+      // Surface the server's own message when there is one — e.g. the
+      // Worker's honest "This membership tier is not configured yet" for a
+      // placeholder price id, which is not a transient failure and must not
+      // be presented as one ("Please try again" would be actively misleading
+      // for that specific case).
       toast({
         title: 'Checkout Error',
-        description: 'Could not initialize checkout. Please try again.',
+        description: error.message || 'Could not initialize checkout. Please try again.',
         variant: 'destructive',
       });
     }

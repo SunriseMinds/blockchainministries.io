@@ -84,20 +84,27 @@ node scripts/migrate-files-r2.mjs --source=<dir> --apply  # hash-verified
 - [ ] Switch to live keys only after the above.
 
 ## Stage 8 — Frontend integration
-- [ ] Add `VITE_BACKEND` (`supabase` | `cloudflare`), default **`supabase`**.
+- [x] Done, under the actual shipped name `VITE_USE_CLOUDFLARE_API` (this doc originally said
+      `VITE_BACKEND` — that name was never implemented; corrected M9.3). Default is unset/false
+      (Supabase) for any local/non-CI build; `tools/set-preview-flags.js` now writes it `true`
+      deterministically for every Workers Builds CI run, preview and production alike (M9.3 — see
+      `docs/ROLLBACK_PLAN.md`).
 - [ ] API client mirrors existing call sites. **No visual or route changes.**
-- [ ] Preview build with `VITE_BACKEND=cloudflare`; production stays on Supabase.
+- [x] Preview build already runs with `VITE_USE_CLOUDFLARE_API=true` automatically; production build
+      now does too as of M9.3 (previously it silently stayed `false` — this was the actual M9.2 gap).
 
 ## Stage 9 — Rollback rehearsal (required)
-- [ ] Flip preview to `cloudflare`, exercise all flows.
-- [ ] Flip back to `supabase`; confirm full recovery; **record the elapsed time**.
+- [ ] Flip preview to Cloudflare mode (automatic), exercise all flows.
+- [ ] Roll back — previous Worker version, or `VITE_USE_CLOUDFLARE_API=false` + redeploy — confirm
+      full recovery; **record the elapsed time**.
 - [ ] `node scripts/rollback-d1.mjs --target=preview --apply` works as expected.
 
 ## Stage 10 — Cutover (explicit approval)
 - [ ] Announce a maintenance window (< 60 min).
 - [ ] Final delta re-sync; re-run validation.
 - [ ] **Record the cutover timestamp (UTC)** — rollback reconciliation depends on it.
-- [ ] Set production `VITE_BACKEND=cloudflare`; deploy.
+- [ ] Deploy `main` with production `vars` set (see `wrangler.jsonc` top level, M9.3) — the build
+      automatically compiles `VITE_USE_CLOUDFLARE_API=true`, no manual flag step needed.
 - [ ] Smoke-test: home, login, dashboard, contact, `/verify/:slug`, donate.
 - [ ] Send password-reset emails if Option 1 was chosen.
 - [ ] Enable Cloudflare Access on `/admin*`.
