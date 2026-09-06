@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { supabase } from '@/lib/customSupabaseClient';
-import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
+import { api } from '@/lib/cloudflareApi';
 import { useToast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -19,29 +18,14 @@ const AdminManagement = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      if (USE_CLOUDFLARE_API) {
-        // requireAdmin re-checks users.role in D1 server-side regardless of
-        // what the client believes — a member session gets a 403 here.
-        const [membershipsRes, ordinationsRes] = await Promise.all([
-          api.get('/admin/memberships?status=pending'),
-          api.get('/admin/ordinations?status=pending'),
-        ]);
-        setPendingMemberships(membershipsRes.items || []);
-        setPendingOrdinations(ordinationsRes.items || []);
-        return;
-      }
-
+      // requireAdmin re-checks users.role in D1 server-side regardless of
+      // what the client believes — a member session gets a 403 here.
       const [membershipsRes, ordinationsRes] = await Promise.all([
-        supabase.from('memberships').select('*, profiles(display_name), users(email)').eq('status', 'pending'),
-        supabase.from('ordinations').select('*, profiles(display_name), users(email)').eq('status', 'pending')
+        api.get('/admin/memberships?status=pending'),
+        api.get('/admin/ordinations?status=pending'),
       ]);
-
-      if (membershipsRes.error) throw membershipsRes.error;
-      setPendingMemberships(membershipsRes.data);
-
-      if (ordinationsRes.error) throw ordinationsRes.error;
-      setPendingOrdinations(ordinationsRes.data);
-
+      setPendingMemberships(membershipsRes.items || []);
+      setPendingOrdinations(ordinationsRes.items || []);
     } catch (error) {
       toast({ title: 'Error fetching data', description: error.message, variant: 'destructive' });
     } finally {
@@ -56,16 +40,9 @@ const AdminManagement = () => {
   const handleApproveMembership = async (membershipId) => {
     setProcessingId(membershipId);
     try {
-      if (USE_CLOUDFLARE_API) {
-        // approved_by is derived from the admin's own session server-side —
-        // never sent by the client.
-        await api.post(`/admin/memberships/${membershipId}/approve`);
-      } else {
-        const { error } = await supabase.functions.invoke('admin-approve-membership', {
-          body: { membership_id: membershipId },
-        });
-        if (error) throw error;
-      }
+      // approved_by is derived from the admin's own session server-side —
+      // never sent by the client.
+      await api.post(`/admin/memberships/${membershipId}/approve`);
       toast({ title: 'Membership Approved', description: 'Status updated.', className: 'bg-green-800 text-white' });
       fetchData();
     } catch (error) {
@@ -80,16 +57,8 @@ const AdminManagement = () => {
   const handleApproveOrdination = async (ordinationId) => {
     setProcessingId(ordinationId);
     try {
-      if (USE_CLOUDFLARE_API) {
-        await api.post(`/admin/ordinations/${ordinationId}/approve`);
-        toast({ title: 'Ordination Approved', description: 'Status updated. Credential generation is not yet available.', className: 'bg-green-800 text-white' });
-      } else {
-        const { error } = await supabase.functions.invoke('admin-approve-ordination', {
-          body: { ordination_id: ordinationId },
-        });
-        if (error) throw error;
-        toast({ title: 'Ordination Approved', description: 'Credential generated and status updated.', className: 'bg-green-800 text-white' });
-      }
+      await api.post(`/admin/ordinations/${ordinationId}/approve`);
+      toast({ title: 'Ordination Approved', description: 'Status updated. Credential generation is not yet available.', className: 'bg-green-800 text-white' });
       fetchData();
     } catch (error) {
       toast({ title: 'Approval Error', description: error.message, variant: 'destructive' });
@@ -101,13 +70,7 @@ const AdminManagement = () => {
   const handleReject = async (type, id) => {
     setProcessingId(id);
     try {
-      if (USE_CLOUDFLARE_API) {
-        await api.post(`/admin/${type === 'membership' ? 'memberships' : 'ordinations'}/${id}/reject`);
-      } else {
-        const table = type === 'membership' ? 'memberships' : 'ordinations';
-        const { error } = await supabase.from(table).update({ status: 'rejected' }).eq('id', id);
-        if (error) throw error;
-      }
+      await api.post(`/admin/${type === 'membership' ? 'memberships' : 'ordinations'}/${id}/reject`);
       toast({ title: 'Application Rejected', description: 'Status has been updated.', className: 'bg-yellow-800 text-white' });
       fetchData();
     } catch (error) {
@@ -119,8 +82,8 @@ const AdminManagement = () => {
 
   const renderApplicationCard = (item, type) => {
     const isProcessing = processingId === item.id;
-    const email = (USE_CLOUDFLARE_API ? item.email : item.users?.email) || 'N/A';
-    const displayName = (USE_CLOUDFLARE_API ? item.display_name : item.profiles?.display_name) || 'N/A';
+    const email = item.email || 'N/A';
+    const displayName = item.display_name || 'N/A';
 
     return (
       <motion.div
@@ -161,11 +124,8 @@ const AdminManagement = () => {
           </div>
         </div>
         {type === 'ordination' && (() => {
-          // D1 stores application_json as TEXT (no native JSON type, unlike
-          // Supabase's jsonb, which the client already deserializes).
-          const application = USE_CLOUDFLARE_API
-            ? (() => { try { return JSON.parse(item.application_json); } catch { return {}; } })()
-            : item.application_json;
+          // D1 stores application_json as TEXT (no native JSON type).
+          const application = (() => { try { return JSON.parse(item.application_json); } catch { return {}; } })();
           return (
             <div className="mt-4 p-3 bg-slate-900/70 rounded-md text-sm">
               <p className="font-semibold text-yellow-400">Reason:</p>

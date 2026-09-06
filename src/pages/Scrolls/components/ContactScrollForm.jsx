@@ -6,8 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { Paperclip } from "lucide-react";
-import { supabase } from "@/lib/customSupabaseClient";
-import { api, USE_CLOUDFLARE_API } from "@/lib/cloudflareApi";
+import { api } from "@/lib/cloudflareApi";
 
 const ContactScrollForm = () => {
   const { toast } = useToast();
@@ -41,25 +40,12 @@ const ContactScrollForm = () => {
     setIsSubmitting(true);
 
     try {
-      if (USE_CLOUDFLARE_API) {
-        await api.post("/scrolls/requests", {
-          name: formData.name,
-          email: formData.email,
-          request_type: formData.requestType,
-          message: formData.message,
-        });
-      } else {
-        const { error } = await supabase
-          .from("scroll_requests")
-          .insert([{
-              name: formData.name,
-              email: formData.email,
-              request_type: formData.requestType,
-              message: formData.message
-          }]);
-
-        if (error) throw error;
-      }
+      await api.post("/scrolls/requests", {
+        name: formData.name,
+        email: formData.email,
+        request_type: formData.requestType,
+        message: formData.message,
+      });
 
       toast({
         title: "📜 Request Sent!",

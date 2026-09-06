@@ -8,7 +8,7 @@
  * order. Rows created by real users after the import are never touched, because
  * they are not in the journal.
  *
- * DRY-RUN by default. Supabase is not involved and is never modified.
+ * DRY-RUN by default.
  */
 import fs from 'node:fs';
 import path from 'node:path';

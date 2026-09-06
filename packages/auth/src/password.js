@@ -112,10 +112,9 @@ export function needsRehash(storedHash) {
 }
 
 /**
- * Placeholder hash for accounts migrated from Supabase. Supabase password
- * hashes cannot be exported, so migrated users get an unusable value and must
- * complete a password reset (see docs/AUTH_CUTOVER_PLAN.md). Deliberately not
- * a valid PHC string, so verifyPassword() always returns false.
+ * Placeholder hash for passwordless accounts (M9.8: every signup is
+ * passwordless — magic-link login only). Deliberately not a valid PHC
+ * string, so verifyPassword() always returns false.
  */
 export function unusablePasswordHash() {
   return `!migrated:${crypto.randomUUID()}`;

@@ -9,14 +9,14 @@ prepared for deployment on Cloudflare Pages.
 - **React 18** SPA built with **Vite**
 - **React Router v6** (`BrowserRouter`)
 - **Tailwind CSS 3** + shadcn/ui (Radix) + **framer-motion**
-- **Supabase** — authentication + application database (transitional)
+- **Cloudflare Workers + D1 + KV** — authentication, application database, and rate limiting
 - **Firebase Firestore** — ministers directory (temporary)
 - Payments: **Stripe**, **PayPal**, **Coinbase Commerce**
 - On-chain: **XRP Ledger** / **Xaman (XUMM)** for the EFT token & trustline
 
-> A migration to a Cloudflare-native backend (Workers/Pages Functions + D1 + R2 +
-> Turnstile) is **designed but not yet implemented** — see `docs/`. Supabase and
-> Firebase remain live until that work is completed and validated.
+> The Cloudflare-native backend (Workers + D1 + KV + Resend email) is live in
+> production. Supabase, the original transitional backend, has been fully
+> retired (M10.4) — see `docs/` for the historical migration record.
 
 ## Requirements
 - Node **22** (see `.nvmrc`)
@@ -59,7 +59,7 @@ secret storage, never in the repo.
 
 | Variable | Purpose |
 |---|---|
-| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Supabase (public anon; hard-coded fallback exists) |
+| `VITE_USE_CLOUDFLARE_API` | Routes the frontend through the `/api/*` Worker (always `true`; see `tools/set-preview-flags.js`) |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe donations |
 | `VITE_PAYPAL_CLIENT_ID` | PayPal |
 | `VITE_NEXT_PUBLIC_SITE_URL` | `https://blockchainministries.io` |
@@ -89,21 +89,15 @@ file-like paths return a genuine 404; security headers by `public/_headers`.
 (No `_redirects` file.) Full instructions, env vars, token permissions, and
 verification steps: **`docs/CLOUDFLARE_DEPLOYMENT.md`**.
 
-## Supabase configuration
-After deploying, add the deployment origin(s) to **Supabase → Authentication → URL
-Configuration** so login, email verification, and password-reset links resolve.
-See `docs/SUPABASE_REQUIRED_CONFIGURATION.md` (to be added) and the backend
-migration design in `docs/`.
-
 ## Documentation
 - `docs/CLOUDFLARE_DEPLOYMENT.md` — Pages deployment settings & verification
-- `docs/CLOUDFLARE_BACKEND_MIGRATION_PLAN.md` — target architecture & sequencing
-- `docs/SUPABASE_TO_D1_SCHEMA_MAP.md` — table-by-table schema mapping
-- `docs/AUTH_MIGRATION_OPTIONS.md` — authentication options & recommendation
-- `docs/EDGE_FUNCTION_TO_WORKER_MAP.md` — Edge Functions → Workers
+- `docs/CLOUDFLARE_BACKEND_MIGRATION_PLAN.md` — target architecture & sequencing (historical)
+- `docs/SUPABASE_TO_D1_SCHEMA_MAP.md` — table-by-table schema mapping (historical — Supabase retired, M10.4)
+- `docs/AUTH_MIGRATION_OPTIONS.md` — authentication options & recommendation (historical)
+- `docs/EDGE_FUNCTION_TO_WORKER_MAP.md` — Edge Functions → Workers (historical)
 - `docs/R2_STORAGE_PLAN.md` — object storage (`bm-public`, `bm-protected`)
-- `docs/DATA_EXPORT_AND_IMPORT_PLAN.md` — data migration & validation
-- `docs/MIGRATION_ROLLBACK_PLAN.md` — feature flag & rollback
+- `docs/DATA_EXPORT_AND_IMPORT_PLAN.md` — data migration & validation (historical — legacy Supabase data was ratified as test-only and was never migrated)
+- `docs/MIGRATION_ROLLBACK_PLAN.md` — feature flag & rollback (historical)
 
 ## License
 Not yet specified. All rights reserved by Blockchain Ministries unless a license is

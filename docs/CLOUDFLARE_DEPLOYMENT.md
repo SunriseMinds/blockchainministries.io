@@ -2,7 +2,8 @@
 
 Exact settings to deploy this React 18 + Vite **static SPA** through Cloudflare's
 current **Workers Builds** Git integration (static assets via Wrangler). This covers
-the **frontend only** — Supabase and Firebase remain the backend for now.
+the frontend and its Cloudflare Worker backend (D1/KV/Resend) — Supabase was
+retired in M10.4 and Firebase remains a separate, untouched dependency (ministers directory only).
 
 > Uses the current Workers Builds flow, **not** the older Cloudflare Pages dashboard.
 
@@ -66,19 +67,19 @@ pinned target.)
 
 ### Environment variables (build-time, PUBLIC only)
 Set on the build configuration. Only `VITE_*` (public) values — **never** server
-secrets (no Stripe secret, SMTP, XRPL seed, Supabase service role, or API tokens here).
+secrets (no Stripe secret, SMTP, XRPL seed, or API tokens here).
 
 | Variable | Required? | Notes |
 |---|---|---|
 | `VITE_STRIPE_PUBLISHABLE_KEY` | For donations | `pk_live_...` / `pk_test_...` |
 | `VITE_PAYPAL_CLIENT_ID` | For PayPal | public client id |
-| `VITE_SUPABASE_URL` | Optional | hard-coded fallback exists |
-| `VITE_SUPABASE_ANON_KEY` | Optional | public anon key; hard-coded fallback exists |
 | `VITE_NEXT_PUBLIC_SITE_URL` | Optional | `https://blockchainministries.io` |
 | `VITE_NEXT_PUBLIC_XRPL_EXPLORER` | Optional | `https://livenet.xrpl.org` |
 
-> The app builds and renders without any env vars (Supabase URL/anon key are
-> hard-coded in the export); Stripe/PayPal flows need their `VITE_*` keys.
+> `VITE_USE_CLOUDFLARE_API` is set automatically by `tools/set-preview-flags.js`
+> for every Workers Builds CI run (preview and production) — no manual setting
+> needed. The app builds and renders without any other env vars; Stripe/PayPal
+> flows need their `VITE_*` keys.
 
 ### API token permissions (if you create a scoped token instead of OAuth)
 When connecting via the dashboard's Git integration you normally authorize with your
@@ -117,9 +118,8 @@ On the temporary `*.workers.dev` URL:
    `/join`, `/donate`, `/contact`, `/login`, `/privacy`, `/terms` → all 200.
 3. Unknown route (e.g. `/nope`) → in-app "404 - Scroll Not Found".
 4. A missing asset path returns a real 404 (not index.html).
-5. Auth (Supabase): sign-up/login/logout/reset — **add the `*.workers.dev` origin to
-   Supabase → Authentication → URL Configuration** or email links fail.
-6. Contact + scroll-request forms submit (write to Supabase).
+5. Auth: sign-up/magic-link login/logout/password-reset request against `/api/auth/*`.
+6. Contact + scroll-request forms submit (write to D1 via `/api/contact` and `/api/scrolls/requests`).
 7. Console clean; `favicon.svg`, `robots.txt`, `sitemap.xml`, `_headers` apply.
 8. Mobile + desktop.
 

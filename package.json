@@ -39,7 +39,6 @@
     "@reellink/xrpl": "*",
     "@stripe/react-stripe-js": "^2.7.1",
     "@stripe/stripe-js": "^3.4.1",
-    "@supabase/supabase-js": "2.30.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "firebase": "^10.7.1",

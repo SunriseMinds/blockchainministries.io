@@ -7,11 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/lib/customSupabaseClient';
-import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
-import { loadStripe } from '@stripe/stripe-js';
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+import { api } from '@/lib/cloudflareApi';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -48,67 +44,28 @@ const Join = () => {
     setLoading(true);
 
     try {
-      if (USE_CLOUDFLARE_API) {
-        // The Cloudflare-native signup+membership+payment flow is
-        // deliberately NOT a single atomic call the way the old Supabase
-        // `join-membership` function was: /api/auth/signup does not
-        // establish a session, and membership/checkout endpoints require a
-        // verified email first (requireVerifiedEmail). Weakening either of
-        // those to force a one-shot flow was not authorized in M8, so the
-        // preview path performs signup only here; completing membership
-        // (and, for the paid tier, checkout) is a separate follow-up step
-        // once the user has verified their email and logged in — see the
-        // M8 report for the documented later-milestone UI work this implies.
-        await api.post('/auth/signup', {
-          email: formData.email,
-          password: formData.password,
-          display_name: `${formData.firstName} ${formData.lastName}`.trim(),
-        });
-        setSubmitted(true);
-        toast({
-          title: 'Welcome!',
-          description: 'Please check your email to verify your account, then log in to complete your membership.',
-          className: 'bg-green-800 text-white',
-        });
-        return;
-      }
-
-      const { data, error } = await supabase.functions.invoke('join-membership', {
-        body: {
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          email: formData.email,
-          password: formData.password,
-          membershipType: membershipType,
-        },
+      // The signup+membership+payment flow is deliberately NOT a single
+      // atomic call: /api/auth/signup does not establish a session, and
+      // membership/checkout endpoints require a verified email first
+      // (requireVerifiedEmail). So this page performs signup only;
+      // completing membership (and, for the paid tier, checkout) is a
+      // separate follow-up step once the user has verified their email and
+      // logged in.
+      await api.post('/auth/signup', {
+        email: formData.email,
+        password: formData.password,
+        display_name: `${formData.firstName} ${formData.lastName}`.trim(),
       });
-
-      if (error) throw new Error(error.message);
-
-      if (membershipType === 'paid' && data.sessionId) {
-        toast({
-          title: 'Redirecting to Payment...',
-          description: 'Please complete your payment to activate your membership.',
-        });
-        const stripe = await stripePromise;
-        await stripe.redirectToCheckout({ sessionId: data.sessionId });
-      } else {
-        setSubmitted(true);
-        toast({
-          title: 'Welcome!',
-          description: 'Thank you for joining! Please check your email to confirm your account.',
-          className: 'bg-green-800 text-white',
-        });
-      }
-
+      setSubmitted(true);
+      toast({
+        title: 'Welcome!',
+        description: 'Please check your email to verify your account, then log in to complete your membership.',
+        className: 'bg-green-800 text-white',
+      });
     } catch (err) {
-      const errorMessage = err.message.includes('User already registered')
-        ? 'A user with this email already exists. Please log in.'
-        : err.message || 'An unexpected error occurred.';
-      
       toast({
         title: 'Sign-up Failed',
-        description: errorMessage,
+        description: err.message || 'An unexpected error occurred.',
         variant: 'destructive',
       });
     } finally {

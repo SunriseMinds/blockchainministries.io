@@ -1,60 +1,35 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthProvider';
-import { USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
-import { KeyRound, AtSign, LogIn, Mail, CheckCircle } from 'lucide-react';
+import { AtSign, Mail, CheckCircle } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [linkSent, setLinkSent] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { signIn, requestLoginLink } = useAuth();
+  const { requestLoginLink } = useAuth();
   const { toast } = useToast();
   const trustlineUrl = "https://xrpl.services?issuer=rhbwjNN6U6Zy6mzpsjWbnEg5RBy96TgiLw&currency=EFT&limit=100000000";
-
-  const from = location.state?.from?.pathname || '/dashboard';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
-    if (USE_CLOUDFLARE_API) {
-      // M9.8: passwordless. This only requests the link — the session is
-      // established later, when the user explicitly confirms via the
-      // emailed link (see LoginVerify.jsx), never here.
-      const { error } = await requestLoginLink(email);
-      if (error) {
-        toast({ title: "Request Failed", description: error.message || "Could not send a login link. Please try again.", variant: "destructive" });
-      } else {
-        setLinkSent(true);
-      }
-      setLoading(false);
-      return;
-    }
-
-    const { error } = await signIn({ email, password });
+    // M9.8: passwordless. This only requests the link — the session is
+    // established later, when the user explicitly confirms via the emailed
+    // link (see LoginVerify.jsx), never here.
+    const { error } = await requestLoginLink(email);
     if (error) {
-      toast({
-        title: "Authentication Failed",
-        description: error.message || "The credentials provided are not recognized in the sacred archives.",
-        variant: "destructive",
-      });
+      toast({ title: "Request Failed", description: error.message || "Could not send a login link. Please try again.", variant: "destructive" });
     } else {
-      toast({
-        title: "Authentication Successful",
-        description: "Welcome back, Minister of Light.",
-      });
-      navigate(from, { replace: true });
+      setLinkSent(true);
     }
     setLoading(false);
   };
@@ -109,24 +84,12 @@ const Login = () => {
                   <Label htmlFor="email" className="text-blue-300 flex items-center"><AtSign className="w-4 h-4 mr-2"/>Email</Label>
                   <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="bg-blue-900/50 border-yellow-400/30 text-white placeholder:text-blue-300/70" placeholder="minister@domain.org" />
                 </div>
-                {USE_CLOUDFLARE_API ? (
-                  <p className="text-xs text-blue-300/70">
-                    No password needed — we'll email you a link to log in.
-                  </p>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="password" className="text-blue-300 flex items-center"><KeyRound className="w-4 h-4 mr-2"/>Password</Label>
-                      <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="bg-blue-900/50 border-yellow-400/30 text-white placeholder:text-blue-300/70" placeholder="Enter your sacred key" />
-                    </div>
-                    <div className="text-right">
-                      <Link to="/forgot-password" className="text-sm text-blue-300 hover:text-yellow-400 transition-colors">Forgot Password?</Link>
-                    </div>
-                  </>
-                )}
+                <p className="text-xs text-blue-300/70">
+                  No password needed — we'll email you a link to log in.
+                </p>
                 <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-yellow-400 to-amber-600 text-blue-950 font-bold hover:from-yellow-300 hover:to-amber-500">
-                  {loading ? 'Please wait...' : (USE_CLOUDFLARE_API ? 'Send Login Link' : 'Login')}
-                  {USE_CLOUDFLARE_API ? <Mail className="ml-2 h-4 w-4"/> : <LogIn className="ml-2 h-4 w-4"/>}
+                  {loading ? 'Please wait...' : 'Send Login Link'}
+                  <Mail className="ml-2 h-4 w-4"/>
                 </Button>
               </form>
               <div className="mt-6 text-center space-y-4">

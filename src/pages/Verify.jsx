@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { supabase } from '@/lib/customSupabaseClient';
-import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
+import { api } from '@/lib/cloudflareApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, CheckCircle, XCircle, FileText, Award } from 'lucide-react';
 
@@ -25,56 +24,21 @@ const Verify = () => {
       setError(null);
 
       try {
-        if (USE_CLOUDFLARE_API) {
-          // A single endpoint checks both ordinations and scrolls, and
-          // already guarantees approved-only / safe-fields-only server-side
-          // (no email, no internal id, no application_json, no approved_by,
-          // no credential_r2_key) — nothing further to filter client-side.
-          try {
-            const res = await api.get(`/verify/${encodeURIComponent(slug)}`);
-            if (res.type === 'ordination') {
-              setVerificationResult({ type: 'Ordination', data: res.data });
-            } else {
-              setVerificationResult({ type: 'Scroll', data: res.data });
-            }
-          } catch (apiError) {
-            if (apiError.status === 404) setError('Verification code is invalid or has expired.');
-            else throw apiError;
+        // A single endpoint checks both ordinations and scrolls, and
+        // already guarantees approved-only / safe-fields-only server-side
+        // (no email, no internal id, no application_json, no approved_by,
+        // no credential_r2_key) — nothing further to filter client-side.
+        try {
+          const res = await api.get(`/verify/${encodeURIComponent(slug)}`);
+          if (res.type === 'ordination') {
+            setVerificationResult({ type: 'Ordination', data: res.data });
+          } else {
+            setVerificationResult({ type: 'Scroll', data: res.data });
           }
-          setLoading(false);
-          return;
+        } catch (apiError) {
+          if (apiError.status === 404) setError('Verification code is invalid or has expired.');
+          else throw apiError;
         }
-
-        // Check ordinations first
-        let { data: ordinationData, error: ordinationError } = await supabase
-          .from('ordinations')
-          .select('*, profiles(display_name)')
-          .eq('verify_slug', slug)
-          .eq('status', 'approved')
-          .single();
-
-        if (ordinationData) {
-          setVerificationResult({ type: 'Ordination', data: ordinationData });
-          setLoading(false);
-          return;
-        }
-        if (ordinationError && ordinationError.code !== 'PGRST116') throw ordinationError;
-
-        // Check scrolls next
-        let { data: scrollData, error: scrollError } = await supabase
-          .from('scrolls')
-          .select('*')
-          .eq('verify_slug', slug)
-          .single();
-
-        if (scrollData) {
-          setVerificationResult({ type: 'Scroll', data: scrollData });
-          setLoading(false);
-          return;
-        }
-        if (scrollError && scrollError.code !== 'PGRST116') throw scrollError;
-
-        setError('Verification code is invalid or has expired.');
       } catch (e) {
         console.error('Verification error:', e);
         setError('An unexpected error occurred during verification.');

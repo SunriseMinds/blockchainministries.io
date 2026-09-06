@@ -2,8 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/lib/customSupabaseClient';
-import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
+import { api } from '@/lib/cloudflareApi';
 import { useAuth } from '@/contexts/AuthProvider';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,37 +24,18 @@ const DashboardHome = () => {
     try {
       setLoading(true);
 
-      if (USE_CLOUDFLARE_API) {
-        const [membershipRes, ordinationsRes, donationsRes] = await Promise.all([
-          api.get('/membership/mine'),
-          api.get('/ordination/mine'),
-          api.get('/donations/mine'),
-        ]);
-        // Adapt to the field name (`status`) the existing render code below
-        // already expects — the Worker's own field is `application_status`,
-        // kept separate from `payment_status` by design (see the approved
-        // membership state model).
-        setMembership(membershipRes.membership ? { ...membershipRes.membership, status: membershipRes.membership.application_status } : null);
-        setOrdinations(ordinationsRes.items || []);
-        setDonations(donationsRes.items || []);
-        return;
-      }
-
       const [membershipRes, ordinationsRes, donationsRes] = await Promise.all([
-        supabase.from('memberships').select('*').eq('user_id', user.id).maybeSingle(),
-        supabase.from('ordinations').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-        supabase.from('donations').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+        api.get('/membership/mine'),
+        api.get('/ordination/mine'),
+        api.get('/donations/mine'),
       ]);
-
-      if (membershipRes.error) throw membershipRes.error;
-      setMembership(membershipRes.data);
-
-      if (ordinationsRes.error) throw ordinationsRes.error;
-      setOrdinations(ordinationsRes.data || []);
-
-      if (donationsRes.error) throw donationsRes.error;
-      setDonations(donationsRes.data || []);
-
+      // Adapt to the field name (`status`) the existing render code below
+      // already expects — the Worker's own field is `application_status`,
+      // kept separate from `payment_status` by design (see the approved
+      // membership state model).
+      setMembership(membershipRes.membership ? { ...membershipRes.membership, status: membershipRes.membership.application_status } : null);
+      setOrdinations(ordinationsRes.items || []);
+      setDonations(donationsRes.items || []);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       toast({
@@ -68,13 +48,13 @@ const DashboardHome = () => {
     }
   }, [user, toast]);
 
-  // Cloudflare-preview replacement for Supabase Realtime: refresh once when
-  // the tab regains focus, plus a plain interval poll (30-60s) only while the
-  // tab is visible — no WebSockets/Durable Objects, per the approved design.
+  // Refresh once when the tab regains focus, plus a plain interval poll
+  // (30-60s) only while the tab is visible — no WebSockets/Durable Objects,
+  // per the approved design.
   const pollRef = useRef(null);
   useEffect(() => {
     fetchAllData();
-    if (!USE_CLOUDFLARE_API || !user) return undefined;
+    if (!user) return undefined;
 
     const onFocus = () => fetchAllData();
     window.addEventListener('focus', onFocus);
@@ -97,20 +77,6 @@ const DashboardHome = () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       stopPolling();
-    };
-  }, [user, fetchAllData]);
-
-  useEffect(() => {
-    if (USE_CLOUDFLARE_API || !user) return undefined;
-    const channel = supabase
-      .channel(`realtime:member-dashboard:${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'memberships', filter: `user_id=eq.${user.id}` }, () => fetchAllData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ordinations', filter: `user_id=eq.${user.id}` }, () => fetchAllData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'donations', filter: `user_id=eq.${user.id}` }, () => fetchAllData())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
     };
   }, [user, fetchAllData]);
 

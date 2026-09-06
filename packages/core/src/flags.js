@@ -2,9 +2,8 @@
  * Feature flags for the parallel Cloudflare backend.
  *
  * ALL FLAGS DEFAULT TO FALSE. An unset environment variable is false, so a
- * deployment that does not explicitly opt in keeps the exact production
- * behaviour that exists today: the SPA is served and Supabase remains the
- * live backend. Nothing here can switch production by accident.
+ * deployment that does not explicitly opt in keeps existing behaviour
+ * unchanged. Nothing here can switch production by accident.
  *
  * Set per-environment in the Cloudflare dashboard (Workers Builds → Variables)
  * or in wrangler.jsonc `vars` for a preview environment.
