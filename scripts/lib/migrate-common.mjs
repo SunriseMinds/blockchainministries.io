@@ -1,8 +1,8 @@
 /**
- * Shared helpers for the Supabase -> Cloudflare migration tooling.
+ * Shared helpers for D1/R2 migration tooling (scripts/migrate-files-r2.mjs,
+ * scripts/rollback-d1.mjs).
  *
  * Safety model:
- *  - Supabase is read-only. Nothing here ever issues a write to Postgres.
  *  - Every run is dry-run by default; writing requires an explicit --apply.
  *  - Every run writes a JSONL journal so imports are resumable and auditable,
  *    and so a rollback can be reconstructed from what was actually written.

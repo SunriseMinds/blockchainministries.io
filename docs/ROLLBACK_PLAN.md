@@ -1,5 +1,14 @@
 # Rollback Plan (Phase 2 — Supabase → Cloudflare)
 
+> **HISTORICAL — Supabase retired M10.4.** This plan's dual-backend rollback
+> (flipping `VITE_USE_CLOUDFLARE_API` back to Supabase) is no longer possible:
+> there is no Supabase code path left to flip back to, and the Supabase SDK/
+> client have been removed from the codebase. The current rollback mechanism
+> for any production incident is simply a Cloudflare Worker version rollback
+> (dashboard or `wrangler rollback`) to the last known-good deployed version —
+> Level 1 below, minus every Supabase-specific step. Kept for historical
+> record of the original cutover's safety reasoning.
+
 Supersedes `MIGRATION_ROLLBACK_PLAN.md` (Phase 1 draft) with the real inventory applied.
 
 ## Safety invariants

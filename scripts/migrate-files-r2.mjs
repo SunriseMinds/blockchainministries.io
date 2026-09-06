@@ -2,7 +2,7 @@
 /**
  * Migrate uploaded files into R2, verifying SHA-256 before and after transfer.
  *
- *   node scripts/migrate-files-r2.mjs [--apply] [--resume] [--source=<dir|supabase>]
+ *   node scripts/migrate-files-r2.mjs [--apply] [--resume] --source=<dir>
  *
  * Behaviour:
  *  - DRY-RUN by default: builds the manifest, hashes sources, reports, uploads
@@ -13,10 +13,7 @@
  *    marked done, so a rerun retries it.
  *  - Source storage is never modified or deleted.
  *
- * ⚠️ BLOCKER (risk R-08): where the production PDFs live is still unknown.
- * No Supabase Storage client exists in the frontend, yet scrolls.pdf_path is
- * NOT NULL. Until the owner confirms the source, run with --source=<dir>
- * against a local export.
+ * Run with --source=<dir> against a local export of the files to migrate.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,8 +28,6 @@ banner('File migration -> R2 (hash-verified)', args);
 if (!source) {
   console.error('No --source given.');
   console.error('  --source=<dir>       migrate from a local directory');
-  console.error('  --source=supabase    migrate from Supabase Storage (requires SUPABASE_URL + SUPABASE_SERVICE_ROLE)');
-  console.error('\nSee docs/R2_FILE_MIGRATION_PLAN.md — the production file location is an open question (R-08).');
   process.exit(1);
 }
 
@@ -60,12 +55,6 @@ function walk(dir, base = dir, out = []) {
 }
 
 let manifest = [];
-if (source === 'supabase') {
-  console.error('Supabase Storage source is not implemented: the bucket layout could not be');
-  console.error('inspected (no storage tooling available, SQL not permitted). Confirm the');
-  console.error('source per R-08, then extend classify() for the real layout.');
-  process.exit(2);
-}
 if (!fs.existsSync(source)) {
   console.error(`Source directory not found: ${source}`);
   process.exit(1);

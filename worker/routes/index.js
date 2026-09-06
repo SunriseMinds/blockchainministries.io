@@ -1,9 +1,8 @@
 /**
  * API entry point. Builds the router and dispatches /api/* requests.
  *
- * Everything is gated by USE_NEW_API, which is false unless explicitly
- * enabled, so production behaviour is unchanged and the SPA keeps talking to
- * Supabase until cutover.
+ * Gated by USE_NEW_API (enabled in production since M9.5) — the only
+ * backend the SPA talks to (Supabase was retired in M10.4).
  */
 import { Router } from '@reellink/api/router.js';
 import { json, errorResponse, unavailable } from '@reellink/core/http.js';

@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthProvider';
-import { supabase } from '@/lib/customSupabaseClient';
-import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
+import { api } from '@/lib/cloudflareApi';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,21 +38,14 @@ const Ordination = () => {
     }
     setLoading(true);
     try {
-      if (USE_CLOUDFLARE_API) {
-        // Fields are flat at the top level here (not nested under
-        // application_json) to match the Worker's /api/ordination/apply
-        // contract — the server derives the applicant from the session.
-        await api.post('/ordination/apply', {
-          fullName: formData.fullName,
-          reason: formData.reason,
-          experience: formData.experience,
-        });
-      } else {
-        const { error } = await supabase.functions.invoke('apply-for-ordination', {
-          body: { application_json: formData },
-        });
-        if (error) throw error;
-      }
+      // Fields are flat at the top level here (not nested under
+      // application_json) to match the Worker's /api/ordination/apply
+      // contract — the server derives the applicant from the session.
+      await api.post('/ordination/apply', {
+        fullName: formData.fullName,
+        reason: formData.reason,
+        experience: formData.experience,
+      });
 
       setSubmitted(true);
       toast({

@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/lib/customSupabaseClient';
-import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
+import { api } from '@/lib/cloudflareApi';
 import { Heart, Loader2 } from 'lucide-react';
 
 const StripeDonateForm = ({ setClientSecret }) => {
@@ -20,25 +19,14 @@ const StripeDonateForm = ({ setClientSecret }) => {
   const createPaymentIntent = async (selectedAmount) => {
     setIsLoading(true);
     try {
-      if (USE_CLOUDFLARE_API) {
-        // Anonymous donations remain fully supported — no auth requirement
-        // here, matching the existing product design. The client chooses
-        // only the amount; the Worker attaches identity (or none) from the
-        // session cookie, never from anything sent here.
-        const data = await api.post('/donations/stripe/create-intent', {
-          amount_cents: selectedAmount * 100,
-        });
-        setClientSecret(data.client_secret);
-        return;
-      }
-
-      const { data, error } = await supabase.functions.invoke('stripe-create-intent', {
-        body: { amount: selectedAmount * 100 }, // amount in cents
+      // Anonymous donations remain fully supported — no auth requirement
+      // here, matching the existing product design. The client chooses
+      // only the amount; the Worker attaches identity (or none) from the
+      // session cookie, never from anything sent here.
+      const data = await api.post('/donations/stripe/create-intent', {
+        amount_cents: selectedAmount * 100,
       });
-
-      if (error) throw error;
-
-      setClientSecret(data.clientSecret);
+      setClientSecret(data.client_secret);
     } catch (error) {
       console.error('Error creating payment intent:', error);
       toast({

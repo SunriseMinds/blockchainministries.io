@@ -1,5 +1,11 @@
 # Phase 2E — Production Cutover Checklist
 
+> **HISTORICAL — this cutover completed and Supabase was subsequently retired
+> (M10.4).** The data-migration commands below (`scripts/export-supabase.mjs`,
+> `scripts/import-d1.mjs`) no longer exist in the repo — the owner ratified a
+> no-migration decision (legacy Supabase rows were test data only) instead of
+> running this stage. Kept for historical record of the original cutover plan.
+
 **Do not begin until every Gate A item is answered.** Each stage is reversible; the flag
 flip is the primary rollback lever (`docs/ROLLBACK_PLAN.md`).
 

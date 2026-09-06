@@ -4,9 +4,6 @@
  * Two layers of protection:
  *   1. Cloudflare Access in front of /api/admin/* (dashboard configuration).
  *   2. requireAdmin here, which re-checks users.role in D1 regardless.
- *
- * This replaces the current arrangement, where the only real control is a
- * client-side role check plus Supabase RLS policies (risks R-03/R-04).
  */
 import { json, notFound, conflict, badRequest } from '@reellink/core/http.js';
 import { requireDb } from '@reellink/database/d1.js';

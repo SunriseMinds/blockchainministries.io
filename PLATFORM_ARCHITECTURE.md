@@ -107,7 +107,7 @@ inert. `USE_NEW_API` (master) · `USE_D1` · `USE_R2` · `USE_KV` ·
 | App | Demonstrates |
 |---|---|
 | **Megaship Express** | greenfield on the platform: quoting, invoicing, Stripe, protected PDFs, KV cache. Adopted an existing production schema unchanged. |
-| **Blockchain Ministries** | migration path: domain routes on the platform while Supabase remains live behind a flag. |
+| **Blockchain Ministries** | migration path: domain routes on the platform, cut over from a transitional Supabase backend (fully retired as of M10.4). |
 
 ## Known constraints
 - Workers **forbid runtime WASM compilation** — WASM-based libraries that

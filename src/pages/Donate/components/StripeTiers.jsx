@@ -4,12 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Gem, Shield, Crown } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/lib/customSupabaseClient';
-import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
+import { api } from '@/lib/cloudflareApi';
 import { useAuth } from '@/contexts/AuthProvider';
-import { loadStripe } from '@stripe/stripe-js';
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 const tiers = [
   {
@@ -59,28 +55,7 @@ const StripeTiers = () => {
     });
 
     try {
-      if (USE_CLOUDFLARE_API) {
-        if (!user) {
-          toast({
-            title: 'Authentication Required',
-            description: 'Please log in or sign up to subscribe.',
-            variant: 'destructive',
-          });
-          return;
-        }
-        // The Worker derives identity from the session cookie and, if the
-        // user already has a Stripe customer, reuses it server-side — this
-        // call sends ONLY the tier selection, never a user id or customer id.
-        const data = await api.post('/donations/stripe/checkout', {
-          mode: 'subscription',
-          price_id: priceId,
-        });
-        window.location.href = data.url;
-        return;
-      }
-
-      const { data: { user: supabaseUser } } = await supabase.auth.getUser();
-      if (!supabaseUser) {
+      if (!user) {
         toast({
           title: 'Authentication Required',
           description: 'Please log in or sign up to subscribe.',
@@ -88,27 +63,14 @@ const StripeTiers = () => {
         });
         return;
       }
-
-      const { data, error } = await supabase.functions.invoke('stripe-create-intent', {
-        body: {
-          priceId: priceId,
-          userId: supabaseUser.id,
-          userEmail: supabaseUser.email,
-        },
+      // The Worker derives identity from the session cookie and, if the
+      // user already has a Stripe customer, reuses it server-side — this
+      // call sends ONLY the tier selection, never a user id or customer id.
+      const data = await api.post('/donations/stripe/checkout', {
+        mode: 'subscription',
+        price_id: priceId,
       });
-
-      if (error) throw error;
-
-      const stripe = await stripePromise;
-      const { error: stripeError } = await stripe.redirectToCheckout({ sessionId: data.sessionId });
-
-      if (stripeError) {
-        toast({
-          title: 'Stripe Error',
-          description: stripeError.message,
-          variant: 'destructive',
-        });
-      }
+      window.location.href = data.url;
     } catch (error) {
       // Surface the server's own message when there is one — e.g. the
       // Worker's honest "This membership tier is not configured yet" for a

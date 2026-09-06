@@ -2,19 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { api, USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
+import { api } from '@/lib/cloudflareApi';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
 /**
  * Handles the /verify-email?token=... link from the signup confirmation email.
- *
- * Cloudflare path: POSTs the token to /api/auth/verify-email (single-use,
- * hash-checked against D1). Token is never logged or stored in component state.
- *
- * Supabase path: Supabase's own redirect handles confirmation; this page is
- * not in that flow so we show an informational message.
+ * POSTs the token to /api/auth/verify-email (single-use, hash-checked
+ * against D1). Token is never logged or stored in component state.
  */
 const VerifyEmail = () => {
   const [searchParams] = useSearchParams();
@@ -22,14 +18,6 @@ const VerifyEmail = () => {
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    if (!USE_CLOUDFLARE_API) {
-      // Supabase confirmation happens server-side via Supabase's own redirect;
-      // the /verify-email path is only used in the Cloudflare worker auth flow.
-      setStatus('error');
-      setErrorMsg('Email verification is managed by the authentication provider in this mode.');
-      return;
-    }
-
     const token = searchParams.get('token');
     if (!token) {
       setStatus('error');

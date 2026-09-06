@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthProvider';
-import { USE_CLOUDFLARE_API } from '@/lib/cloudflareApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,38 +13,23 @@ import { KeyRound, ShieldCheck } from 'lucide-react';
 const UpdatePassword = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { updatePassword, session } = useAuth();
+  const { updatePassword } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
-  // The Cloudflare flow is token-based (the emailed link carries a one-time
-  // token in the URL) rather than Supabase's authenticated recovery-session
-  // model, so there is no `session` to gate on in that path.
-  const resetToken = USE_CLOUDFLARE_API ? searchParams.get('token') : null;
+  // Token-based flow: the emailed link carries a one-time token in the URL.
+  const resetToken = searchParams.get('token');
 
   useEffect(() => {
-    if (USE_CLOUDFLARE_API) {
-      if (!resetToken) {
-        toast({
-          title: "Invalid Link",
-          description: "This password reset link is missing or malformed. Please request a new one.",
-          variant: "destructive",
-        });
-        navigate('/forgot-password');
-      }
-      return;
-    }
-    // The onAuthStateChange listener in AuthProvider handles session changes.
-    // We just need to check if the user is logged in when the component mounts.
-    if (!session && !loading) {
+    if (!resetToken) {
       toast({
-        title: "Authentication Required",
-        description: "You need to be logged in to update your password. Please follow the link from your email again.",
+        title: "Invalid Link",
+        description: "This password reset link is missing or malformed. Please request a new one.",
         variant: "destructive",
       });
-      navigate('/login');
+      navigate('/forgot-password');
     }
-  }, [session, loading, navigate, toast, resetToken]);
+  }, [navigate, toast, resetToken]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

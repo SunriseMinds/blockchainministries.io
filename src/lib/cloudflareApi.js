@@ -1,10 +1,6 @@
 /**
- * Thin client for the Cloudflare-native Worker API (/api/*).
- *
- * PREVIEW ONLY — gated by VITE_USE_CLOUDFLARE_API, which defaults to false
- * (unset) so production keeps talking to Supabase exactly as before. Every
- * page that wires up this client checks `USE_CLOUDFLARE_API` and falls back
- * to its existing Supabase code path when it's off.
+ * Client for the Cloudflare-native Worker API (/api/*) — the only backend
+ * this app talks to (Supabase was retired in M10.4).
  *
  * Auth is entirely cookie-based (the Worker sets an HttpOnly session cookie
  * on login/signup) — there is no bearer token, and nothing here ever touches

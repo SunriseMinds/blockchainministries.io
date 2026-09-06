@@ -3,11 +3,8 @@
  *
  * Two responsibilities, in order:
  *
- *  1. /api/*  → the parallel Cloudflare backend (D1 / R2 / Workers auth).
- *               Entirely feature-flagged; with USE_NEW_API unset it returns
- *               503 and touches nothing else. The production site does not
- *               call /api/* today (the SPA talks to Supabase directly), so
- *               mounting it cannot affect current behaviour.
+ *  1. /api/*  → the Cloudflare backend (D1 / R2 / Workers auth). This is the
+ *               only backend the SPA talks to (Supabase was retired in M10.4).
  *
  *  2. everything else → the existing SPA routing, unchanged:
  *     built assets in ./dist are served by Cloudflare's static-assets layer
