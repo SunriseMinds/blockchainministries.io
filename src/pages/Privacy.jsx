@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
 
-const LAST_UPDATED = 'July 23, 2026';
+const LAST_UPDATED = 'September 6, 2026';
 
 const Section = ({ title, children }) => (
   <section className="mb-10">
@@ -81,7 +81,8 @@ const Privacy = () => {
           <Section title="4. Service Providers">
             <p>We rely on trusted third-party services that may process limited data on our behalf:</p>
             <ul className="list-disc list-inside space-y-1">
-              <li><strong>Supabase</strong> — authentication and application database.</li>
+              <li><strong>Cloudflare</strong> — application hosting, database, and authentication infrastructure.</li>
+              <li><strong>Resend</strong> — outgoing transactional email delivery (e.g., login links, confirmations).</li>
               <li><strong>Firebase</strong> — the ministers directory (transitional).</li>
               <li><strong>Stripe</strong> and <strong>PayPal</strong> — donation and payment processing.</li>
               <li><strong>Coinbase Commerce</strong> — cryptocurrency donation processing, where offered.</li>
