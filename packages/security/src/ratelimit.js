@@ -18,6 +18,16 @@ export const POLICIES = Object.freeze({
   // M9.8 — magic-link login request. Same shape as `login`: unguessable
   // token makes brute force moot, this limit is purely abuse/cost control.
   loginLink: [5, 15 * 60],
+  // Public credential/document verification by opaque slug. Generic: any
+  // application with a scan-to-verify URL needs this shape.
+  //
+  // Deliberately far more permissive than the form policies above, and for a
+  // different reason: the slug is unguessable, so this is NOT brute-force
+  // protection — it is volume/cost control only. The threshold must not
+  // penalise legitimate use, where many people can scan the same printed code
+  // from behind one NAT'd venue IP within a minute. 60/minute leaves normal
+  // scanning untouched while still bounding abuse.
+  verifySlug: [60, 60],
 });
 
 /**

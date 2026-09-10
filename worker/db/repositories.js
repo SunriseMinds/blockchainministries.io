@@ -14,6 +14,32 @@
 import { q, nowIso, uuid, page, fromJsonText, defineRepos } from '@reellink/database/d1.js';
 import { authRepos } from '@reellink/auth/repositories.js';
 import { auditLogs } from '@reellink/security/audit-repo.js';
+import { generateCredentialNumber } from '../credential/number.js';
+
+/**
+ * Is this error specifically a collision on `ordinations.credential_number`?
+ *
+ * Deliberately narrow (M11 Phase 3). `ordinations` also has a UNIQUE
+ * `verify_slug`, and the approval UPDATE writes both — retrying a fresh
+ * credential number would not fix a slug collision, and silently retrying any
+ * UNIQUE failure would mask real bugs. Both substrings must be present, so a
+ * different constraint, a foreign-key failure, or any other database error
+ * propagates untouched.
+ */
+function isCredentialNumberCollision(err) {
+  const msg = String(err?.message ?? '');
+  return msg.includes('UNIQUE constraint failed') && msg.includes('ordinations.credential_number');
+}
+
+/**
+ * Does this ordination row currently have a usable credential?
+ *
+ * The ONE definition, per docs/M11_CREDENTIAL_POLICY.md: issued and not
+ * revoked. Never derived from `credential_version` (0 = never issued, but 2
+ * is just as valid as 1) and never from `credential_r2_key`, which M11 leaves
+ * permanently NULL.
+ */
+export const credentialAvailable = (o) => Boolean(o?.issued_at && !o?.revoked_at);
 
 /* ------------------------------------------------------------ memberships -- */
 // `application_status` (admin-decided) and `payment_status` (webhook-decided
@@ -122,13 +148,31 @@ export const ordinations = (db) => ({
   byUser: (userId) =>
     q(db).first('SELECT * FROM ordinations WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [userId]),
 
-  /** Public verification: approved only. */
+  /**
+   * Public verification lookup (M11 Phase 6).
+   *
+   * Resolves an ISSUED credential whether or not it is revoked — a revoked
+   * credential MUST stay publicly resolvable so that someone scanning an old
+   * printed QR is told it was revoked, rather than getting "not found" and
+   * being unable to tell revocation from a bad code. The caller decides
+   * valid vs revoked from `revoked_at`.
+   *
+   * `issued_at IS NOT NULL` is required in addition to status: an ordination
+   * approved before M11 is NOT automatically a credential.
+   *
+   * `revoked_by` and `revocation_reason` are deliberately NOT selected, and
+   * neither is `user_id`, `approved_by`, or any users-table column. The
+   * private fields cannot leak through this path because they are never
+   * fetched — defence in depth behind the route's own field allow-list.
+   * `application_json` is returned only so the route can extract fullName
+   * (Q3); the route never passes it onward.
+   */
   byVerifySlug: (slug) =>
     q(db).first(
-      `SELECT o.id, o.verify_slug, o.status, o.approved_at, o.created_at, u.display_name
+      `SELECT o.id, o.verify_slug, o.status, o.application_json,
+              o.credential_number, o.approved_at, o.issued_at, o.revoked_at
          FROM ordinations o
-         JOIN users u ON u.id = o.user_id
-        WHERE o.verify_slug = ? AND o.status = 'approved'`,
+        WHERE o.verify_slug = ? AND o.status = 'approved' AND o.issued_at IS NOT NULL`,
       [slug],
     ),
 
@@ -143,16 +187,78 @@ export const ordinations = (db) => ({
     return id;
   },
 
-  /** Idempotent — see memberships.approve. */
-  async approve(id, { approvedBy, verifySlug, credentialR2Key = null, nftTokenId = null, txHash = null }) {
-    const meta = await q(db).run(
-      `UPDATE ordinations
-          SET status='approved', approved_by=?, approved_at=?, verify_slug=COALESCE(verify_slug, ?),
-              credential_r2_key=?, nft_token_id=?, tx_hash=?, updated_at=?
-        WHERE id = ? AND status = 'pending'`,
-      [approvedBy, nowIso(), verifySlug, credentialR2Key, nftTokenId, txHash, nowIso(), id],
-    );
-    return (meta.changes ?? 0) === 1;
+  /**
+   * Approve AND issue, in one statement. Idempotent — see memberships.approve.
+   *
+   * M11 Q9 ratifies approval and issuance as the SAME act, so the single
+   * UPDATE that moves pending -> approved also assigns `credential_number`,
+   * stamps `issued_at`, and sets `credential_version = 1`. There is no second
+   * write, so there is no window in which an ordination is approved but
+   * un-issued, and no partial state to reconcile if the request dies midway.
+   *
+   * `credential_version` is set EXPLICITLY to 1 rather than relying on the
+   * column default, which is 0 ("never issued") — see migrations/0003.
+   *
+   * The `WHERE id = ? AND status = 'pending'` gate is the idempotency
+   * mechanism and is unchanged: a retry after a successful approval changes 0
+   * rows, so it cannot issue a second credential, overwrite the assigned
+   * number, move `issued_at`/`approved_at`, reset the version, or regenerate
+   * `verify_slug` (which is additionally pinned by COALESCE).
+   *
+   * COLLISION HANDLING: uniqueness is owned by the D1 partial unique index,
+   * NOT by a pre-flight SELECT — a check-then-write would be a race. We simply
+   * attempt the write and, if the database rejects that specific number,
+   * generate another and try again, bounded. Any other error propagates.
+   *
+   * `credential_r2_key` is deliberately NO LONGER in the SET list. It was only
+   * ever written back as its own prior value, and leaving it out means no
+   * approval path can null a credential reference. M11 stores no object, so
+   * the column stays NULL and unused (Q7).
+   *
+   * `nftTokenId`/`txHash` are retained purely to preserve the existing XRPL
+   * call signature in worker/routes/admin.js; XRPL behaviour is unchanged in
+   * this phase (see the backlog note about the mint hash never persisting).
+   *
+   * @returns {Promise<boolean>} true if this call performed the transition
+   */
+  async approve(id, {
+    approvedBy,
+    verifySlug,
+    nftTokenId = null,
+    txHash = null,
+    now = null,
+    generateNumber = generateCredentialNumber,
+    maxAttempts = 5,
+  }) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const ts = now ?? nowIso();
+      try {
+        const meta = await q(db).run(
+          `UPDATE ordinations
+              SET status='approved', approved_by=?, approved_at=?, verify_slug=COALESCE(verify_slug, ?),
+                  credential_number=?, issued_at=?, credential_version=1,
+                  nft_token_id=?, tx_hash=?, updated_at=?
+            WHERE id = ? AND status = 'pending'`,
+          [approvedBy, ts, verifySlug, generateNumber(), ts, nftTokenId, txHash, ts, id],
+        );
+        return (meta.changes ?? 0) === 1;
+      } catch (err) {
+        // Only a collision on the credential number is retryable. A UNIQUE
+        // failure on verify_slug, an FK failure, or anything else is a real
+        // error and must not be retried into a different outcome.
+        if (!isCredentialNumberCollision(err)) throw err;
+        if (attempt === maxAttempts) {
+          // Fail loudly. The UPDATE is atomic, so every failed attempt wrote
+          // nothing — the row is still 'pending' and un-issued, never
+          // half-approved.
+          throw new Error(
+            `Could not allocate a unique credential number for ordination ${id} after ${maxAttempts} attempts`,
+          );
+        }
+      }
+    }
+    // Unreachable: the loop either returns or throws.
+    return false;
   },
 
   async reject(id, { approvedBy }) {
@@ -167,18 +273,106 @@ export const ordinations = (db) => ({
    * A previously-rejected applicant may resubmit — the only allowed
    * rejected → pending transition, mirrors memberships.resubmit. A rejected
    * row can only ever have reached 'rejected' from 'pending' (never from
-   * 'approved'), so approved_by/approved_at/nft_token_id/tx_hash are always
-   * already NULL here; cleared anyway for defense in depth.
+   * 'approved'), so every field cleared below is already NULL here; clearing
+   * them anyway is defense in depth.
+   *
+   * M11: the reset is now TOTAL. Before this phase it cleared only
+   * approved_by/approved_at/nft_token_id/tx_hash, which was complete at the
+   * time because no credential fields existed. Leaving any credential
+   * lifecycle state on a row that has gone back to 'pending' would mean a
+   * pending application still reporting an issued (or revoked) credential, so
+   * all six M11 columns are reset to their never-issued values:
+   * credential_version returns to 0, not 1.
+   *
+   * `credential_r2_key` is cleared here too, even though M11 never writes it
+   * (Q7). A stale object reference must never survive back into a pending
+   * application — if server-side archival is ever adopted, this reset is
+   * already correct rather than a latent bug waiting to be found.
    */
-  async resubmit(id, { applicationJson }) {
+  async resubmit(id, { applicationJson, now = null }) {
+    const ts = now ?? nowIso();
     const meta = await q(db).run(
       `UPDATE ordinations
           SET status='pending', application_json=?, approved_by=NULL, approved_at=NULL,
-              nft_token_id=NULL, tx_hash=NULL, updated_at=?
+              nft_token_id=NULL, tx_hash=NULL,
+              credential_number=NULL, issued_at=NULL, credential_version=0,
+              revoked_at=NULL, revoked_by=NULL, revocation_reason=NULL,
+              credential_r2_key=NULL, updated_at=?
         WHERE id = ? AND status = 'rejected'`,
-      [applicationJson, nowIso(), id],
+      [applicationJson, ts, id],
     );
     return (meta.changes ?? 0) === 1;
+  },
+
+  /**
+   * Revoke an issued credential (M11 Q6 — admin-only at the route layer,
+   * which does not exist yet).
+   *
+   * Revocation is ORTHOGONAL to `status`: the ordination remains 'approved'
+   * because the ministry's decision has not been reversed — only the
+   * credential's validity has. `status` therefore keeps its original CHECK
+   * from the frozen 0001 and needs no 'revoked' value.
+   *
+   * Permanent identity is untouched: credential_number, verify_slug,
+   * approved_at, approved_by, issued_at and credential_version all survive, so
+   * a revoked credential still verifies publicly AS REVOKED rather than
+   * vanishing.
+   *
+   * Guarded on `issued_at IS NOT NULL AND revoked_at IS NULL`, so the write is
+   * atomic and idempotent — a double revoke changes 0 rows and cannot
+   * overwrite the original reason, actor, or timestamp.
+   *
+   * @returns {Promise<{ok:boolean, outcome:'revoked'|'not_found'|'not_issued'|'already_revoked'}>}
+   */
+  async revoke(id, { revokedBy, reason, now = null }) {
+    const ts = now ?? nowIso();
+    const meta = await q(db).run(
+      `UPDATE ordinations
+          SET revoked_at=?, revoked_by=?, revocation_reason=?, updated_at=?
+        WHERE id = ? AND issued_at IS NOT NULL AND revoked_at IS NULL`,
+      [ts, revokedBy, reason, ts, id],
+    );
+    if ((meta.changes ?? 0) === 1) return { ok: true, outcome: 'revoked' };
+
+    // Only on the failure path do we pay for a read, purely to tell the route
+    // layer WHY, so it can answer 404 vs 409 correctly in a later phase.
+    const row = await q(db).first('SELECT id, issued_at, revoked_at FROM ordinations WHERE id = ?', [id]);
+    if (!row) return { ok: false, outcome: 'not_found' };
+    if (row.revoked_at) return { ok: false, outcome: 'already_revoked' };
+    return { ok: false, outcome: 'not_issued' };
+  },
+
+  /**
+   * Reissue a revoked credential (M11 Q8 — admin-only at the route layer,
+   * which does not exist yet).
+   *
+   * Restores validity on the SAME credential: `credential_number` and
+   * `verify_slug` are never regenerated (the slug is a public URL that may be
+   * printed — risk R-13), and `approved_at`/`approved_by` keep the original
+   * ordination date. Only the generation advances.
+   *
+   * Guarded on `issued_at IS NOT NULL AND revoked_at IS NOT NULL` — reissue is
+   * defined only for a credential that exists and is currently revoked, so it
+   * can never quietly bump the version of a live credential or manufacture one
+   * for a never-issued ordination.
+   *
+   * @returns {Promise<{ok:boolean, outcome:'reissued'|'not_found'|'not_issued'|'not_revoked'}>}
+   */
+  async reissue(id, { now = null } = {}) {
+    const ts = now ?? nowIso();
+    const meta = await q(db).run(
+      `UPDATE ordinations
+          SET revoked_at=NULL, revoked_by=NULL, revocation_reason=NULL,
+              issued_at=?, credential_version = credential_version + 1, updated_at=?
+        WHERE id = ? AND issued_at IS NOT NULL AND revoked_at IS NOT NULL`,
+      [ts, ts, id],
+    );
+    if ((meta.changes ?? 0) === 1) return { ok: true, outcome: 'reissued' };
+
+    const row = await q(db).first('SELECT id, issued_at, revoked_at FROM ordinations WHERE id = ?', [id]);
+    if (!row) return { ok: false, outcome: 'not_found' };
+    if (!row.issued_at) return { ok: false, outcome: 'not_issued' };
+    return { ok: false, outcome: 'not_revoked' };
   },
 
   listByStatus(status, opts) {

@@ -102,7 +102,19 @@
         // format. EMAIL_FROM must be a sender already verified on the
         // Blockchain Ministries Resend domain.
         "EMAIL_PROVIDER": "resend",
-        "EMAIL_FROM": "contact@blockchainministries.io"
+        "EMAIL_FROM": "contact@blockchainministries.io",
+        // M11 Phase 7 — the preview environment's OWN canonical origin, never
+        // production's. `vars` are not inherited by environments, so without
+        // this the M11 credential route fails loudly with 503 (by design: it
+        // refuses to build a malformed verification URL) and every QR would
+        // encode the wrong host.
+        //
+        // This is the stable workers.dev origin of the `env.preview` Worker
+        // `blockchainministries-io-preview`, created by `wrangler deploy --env
+        // preview` and resolved from the account — not guessed, and not a
+        // per-version preview URL (which `wrangler versions upload` mints
+        // afresh on every upload and which therefore cannot be a SITE_URL).
+        "SITE_URL": "https://blockchainministries-io-preview.sonriseminds.workers.dev"
         // USE_R2 and USE_TURNSTILE are deliberately absent -> false (see
         // packages/core/src/flags.js `on()`). Do not add USE_R2 here until an
         // isolated preview R2 bucket exists.

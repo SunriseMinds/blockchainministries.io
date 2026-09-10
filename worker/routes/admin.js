@@ -5,7 +5,7 @@
  *   1. Cloudflare Access in front of /api/admin/* (dashboard configuration).
  *   2. requireAdmin here, which re-checks users.role in D1 regardless.
  */
-import { json, notFound, conflict, badRequest } from '@reellink/core/http.js';
+import { json, readJson, notFound, conflict, badRequest } from '@reellink/core/http.js';
 import { requireDb } from '@reellink/database/d1.js';
 import { repos } from '../db/repositories.js';
 import * as val from '@reellink/core/validate.js';
@@ -185,13 +185,205 @@ export function mount(r) {
       }
     }
 
-    const user = await repo.users.byId(ordination.user_id);
-    if (user) await send(ctx, { to: user.email, ...templates.applicationApproved('ordination') });
+    // Re-read so the email and audit carry the credential this approval just
+    // issued (approve() returns only whether it transitioned).
+    const issued = await repo.ordinations.byId(ctx.params.id);
 
     await audit(ctx, ACTIONS.ORDINATION_APPROVE, {
-      entityType: 'ordination', entityId: ctx.params.id, metadata: { verify_slug: verifySlug, minting },
+      entityType: 'ordination',
+      entityId: ctx.params.id,
+      metadata: {
+        verify_slug: verifySlug,
+        minting,
+        credential_number: issued?.credential_number ?? null,
+        credential_version: issued?.credential_version ?? null,
+      },
     });
-    return json({ ok: true, ordination_id: ctx.params.id, verify_slug: verifySlug, xrpl_minting: minting });
+
+    // Notification comes AFTER the authoritative state change and its audit,
+    // and can never undo them — same semantics as revoke/reissue. An approval
+    // stands whether or not Resend is reachable.
+    const user = await repo.users.byId(ordination.user_id);
+    const origin = ctx.env.SITE_URL || ctx.url.origin;
+    const notification = await notifyMember(
+      ctx,
+      user,
+      templates.credentialIssued({
+        credentialNumber: issued?.credential_number,
+        // approved_at — the ordination date. Never issued_at.
+        dateOfOrdination: emailDate(issued?.approved_at),
+        dashboardUrl: `${origin}/dashboard`,
+        verifyUrl: `${origin}/verify/${verifySlug}`,
+      }),
+      { ordinationId: ctx.params.id },
+    );
+
+    return json({
+      ok: true,
+      ordination_id: ctx.params.id,
+      verify_slug: verifySlug,
+      credential_number: issued?.credential_number ?? null,
+      xrpl_minting: minting,
+      notification,
+    });
+  });
+
+  /* ------------------------------------------------ credential lifecycle -- */
+  /**
+   * Best-effort member notification after an AUTHORITATIVE state change.
+   *
+   * The state transition has already committed by the time this runs. Email is
+   * never allowed to undo it: a Resend outage must not leave a revoked
+   * credential valid. Every failure mode — a provider error response, a thrown
+   * transport/config error — is caught, audited, and reported in the response
+   * so an operator can follow up, while the credential state stands.
+   *
+   * @returns {Promise<'sent'|'failed'>}
+   */
+  async function notifyMember(ctx, user, message, { ordinationId }) {
+    if (!user) return 'failed';
+    let sent = false;
+    try {
+      const result = await send(ctx, { to: user.email, ...message });
+      sent = Boolean(result?.sent);
+    } catch (e) {
+      console.error('[credential] notification threw', e?.message);
+      sent = false;
+    }
+    if (!sent) {
+      await audit(ctx, ACTIONS.CREDENTIAL_NOTIFY_FAILED, {
+        entityType: 'ordination', entityId: ordinationId,
+      });
+    }
+    return sent ? 'sent' : 'failed';
+  }
+
+  /** Human-readable date for email copy. UTC, locale-independent. */
+  function emailDate(iso) {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? String(iso) : d.toISOString().slice(0, 10);
+  }
+
+  /**
+   * Revoke an issued credential (M11 Q6). Admin-only via requireAdmin, which
+   * re-checks users.role in D1 and enforces the Cloudflare Access assertion
+   * wherever REQUIRE_CF_ACCESS is configured.
+   *
+   * The client supplies ONLY a reason. `revoked_by` comes from the admin's own
+   * session and `revoked_at` from server time — neither is ever read from the
+   * request body, and nor are credential_number, verify_slug or user_id.
+   */
+  r.post('/api/admin/ordinations/:id/revoke', [requireAdmin], async (ctx) => {
+    const db = requireDb(ctx);
+    const repo = repos(db);
+    const body = await readJson(ctx.request);
+    // Required, trimmed, blank rejected, bounded. readJson caps the payload at
+    // 64KB before this, so an enormous body never reaches validation.
+    const reason = val.str(body, 'reason', { max: 1000 });
+
+    const now = new Date().toISOString();
+    const result = await repo.ordinations.revoke(ctx.params.id, {
+      revokedBy: ctx.session.user_id,
+      reason,
+      now,
+    });
+
+    if (!result.ok) {
+      if (result.outcome === 'not_found') throw notFound('Ordination not found');
+      if (result.outcome === 'already_revoked') throw conflict('This credential is already revoked');
+      throw conflict('This ordination has no issued credential to revoke');
+    }
+
+    const ordination = await repo.ordinations.byId(ctx.params.id);
+
+    // Audit the transition FIRST, so it is recorded even if notification dies.
+    // The private reason lives here and only here: audit_logs is read solely by
+    // GET /api/admin/audit-logs behind requireAdmin.
+    await audit(ctx, ACTIONS.CREDENTIAL_REVOKE, {
+      entityType: 'ordination',
+      entityId: ctx.params.id,
+      metadata: {
+        credential_number: ordination.credential_number,
+        credential_version: ordination.credential_version,
+        revoked_at: now,
+        reason,
+      },
+    });
+
+    const user = await repo.users.byId(ordination.user_id);
+    const notification = await notifyMember(
+      ctx,
+      user,
+      // NOTE: the reason is NOT passed to the template. Policy authorizes
+      // telling the member THAT and WHEN, never WHY.
+      templates.credentialRevoked({
+        credentialNumber: ordination.credential_number,
+        revokedOn: emailDate(now),
+      }),
+      { ordinationId: ctx.params.id },
+    );
+
+    return json({
+      ok: true,
+      ordination_id: ctx.params.id,
+      credential_number: ordination.credential_number,
+      revoked_at: now,
+      notification,
+    });
+  });
+
+  /**
+   * Reissue a revoked credential (M11 Q8). The client supplies nothing: no new
+   * credential number, no new slug. The repository preserves credential_number,
+   * verify_slug, approved_at, approved_by and status, clears the revocation
+   * fields, increments credential_version, and moves issued_at to now.
+   */
+  r.post('/api/admin/ordinations/:id/reissue', [requireAdmin], async (ctx) => {
+    const db = requireDb(ctx);
+    const repo = repos(db);
+
+    const now = new Date().toISOString();
+    const result = await repo.ordinations.reissue(ctx.params.id, { now });
+
+    if (!result.ok) {
+      if (result.outcome === 'not_found') throw notFound('Ordination not found');
+      if (result.outcome === 'not_revoked') throw conflict('This credential is not revoked');
+      throw conflict('This ordination has no issued credential to reissue');
+    }
+
+    const ordination = await repo.ordinations.byId(ctx.params.id);
+
+    // No revocation reason here — it has been cleared and is now obsolete.
+    await audit(ctx, ACTIONS.CREDENTIAL_REISSUE, {
+      entityType: 'ordination',
+      entityId: ctx.params.id,
+      metadata: {
+        credential_number: ordination.credential_number,
+        credential_version: ordination.credential_version,
+        issued_at: now,
+      },
+    });
+
+    const user = await repo.users.byId(ordination.user_id);
+    const notification = await notifyMember(
+      ctx,
+      user,
+      templates.credentialReissued({
+        credentialNumber: ordination.credential_number,
+        // approved_at, NOT issued_at — a reissue is not a new ordination.
+        dateOfOrdination: emailDate(ordination.approved_at),
+      }),
+      { ordinationId: ctx.params.id },
+    );
+
+    return json({
+      ok: true,
+      ordination_id: ctx.params.id,
+      credential_number: ordination.credential_number,
+      credential_version: ordination.credential_version,
+      issued_at: now,
+      notification,
+    });
   });
 
   r.post('/api/admin/ordinations/:id/reject', [requireAdmin], async (ctx) => {

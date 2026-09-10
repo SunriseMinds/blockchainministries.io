@@ -7,7 +7,8 @@
  */
 import { json, readJson, clientIp, notFound, conflict, badRequest, HttpError } from '@reellink/core/http.js';
 import { requireDb } from '@reellink/database/d1.js';
-import { repos, fromJsonText } from '../db/repositories.js';
+import { repos, fromJsonText, credentialAvailable } from '../db/repositories.js';
+import { renderCredential } from '../credential/render.js';
 import * as v from '@reellink/core/validate.js';
 import { enforce } from '@reellink/security/ratelimit.js';
 import { audit } from '@reellink/security/audit.js';
@@ -17,6 +18,53 @@ import { requireAuth, requireVerifiedEmail } from '@reellink/auth/middleware.js'
 import { requireTurnstile } from '@reellink/security/turnstile-middleware.js';
 import * as stripe from '@reellink/payments/stripe.js';
 import * as xrpl from '@reellink/xrpl/client.js';
+
+/**
+ * Response headers for the credential document (M11 Phase 5).
+ *
+ * The CSP is derived from what the Phase 4 renderer actually emits, not copied
+ * from a template:
+ *
+ *   default-src 'none'      Nothing may be fetched. `script-src` inherits this,
+ *                           so NO JavaScript can execute — inline or external —
+ *                           even if escaping were ever to fail.
+ *   style-src 'unsafe-inline'
+ *                           The one allowance the document needs: a single
+ *                           inline <style> block. A hash would be marginally
+ *                           tighter, but it silently unstyles the page on any
+ *                           whitespace change to the stylesheet, and the
+ *                           residual risk is negligible here — script execution
+ *                           is already fully blocked, and with no img-src,
+ *                           font-src or connect-src there is no CSS channel to
+ *                           exfiltrate through either.
+ *   base-uri / form-action / frame-ancestors 'none'
+ *                           No base-tag hijack, no form posts, no framing.
+ *
+ * There is deliberately NO img-src: the QR is an inline <svg> element, part of
+ * the document's own markup rather than a fetched image, so it renders under
+ * `default-src 'none'`. The renderer emits no <img>, no <link>, no <script>,
+ * no @import and no url() — asserted by both the Phase 4 and Phase 5 suites —
+ * so nothing further needs allowing.
+ */
+const CREDENTIAL_CSP = [
+  "default-src 'none'",
+  "style-src 'unsafe-inline'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+const CREDENTIAL_HEADERS = Object.freeze({
+  'Content-Type': 'text/html; charset=utf-8',
+  // Authenticated, per-member document: never store it, never let a shared
+  // cache hold it.
+  'Cache-Control': 'private, no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy': CREDENTIAL_CSP,
+  // The credential URL contains the ordination id; don't leak it onward.
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+});
 
 export function mount(r) {
   /* ------------------------------------------------------------ profile -- */
@@ -109,18 +157,52 @@ export function mount(r) {
     const db = requireDb(ctx);
     const repo = repos(db);
     const slug = ctx.params.slug;
+    // Volume/cost control only — the slug is unguessable, so this is not
+    // brute-force protection. 60/min/IP leaves ordinary QR scanning (including
+    // a whole room scanning one printed code from a single NAT'd IP) alone.
+    await enforce(ctx, 'verifySlug', clientIp(ctx.request));
 
     const ordination = await repo.ordinations.byVerifySlug(slug);
     if (ordination) {
+      /**
+       * Q3 — the public name is application_json.fullName, the name the
+       * applicant supplied for their credential. `users.display_name` is
+       * deliberately NOT a fallback: showing the wrong name on a public
+       * verification page is worse than showing none, so this FAILS CLOSED
+       * into the same not-found response an unknown slug produces.
+       */
+      const application = fromJsonText(ordination.application_json);
+      const fullName = typeof application?.fullName === 'string' ? application.fullName.trim() : '';
+      if (!fullName) throw notFound('No record matches that verification code');
+
+      const revoked = Boolean(ordination.revoked_at);
       return json({
         type: 'ordination',
         data: {
-          display_name: ordination.display_name,
-          status: ordination.status,
+          // `verified` answers "is this credential good right now"; a revoked
+          // credential resolves successfully but is NOT verified.
+          verified: !revoked,
+          credential_status: revoked ? 'revoked' : 'valid',
+          full_name: fullName,
+          credential_number: ordination.credential_number,
+          designation: 'Ordained Minister',
+          // The ORIGINAL ordination date. Never issued_at, which moves on
+          // reissue (Q8) — a reissue is not a new ordination.
+          date_of_ordination: ordination.approved_at,
           verify_slug: ordination.verify_slug,
-          approved_at: ordination.approved_at,
+          // The public may know THAT and WHEN, never WHY. `revocation_reason`
+          // and `revoked_by` are not selected by the query and are not here.
+          ...(revoked ? { revoked_at: ordination.revoked_at } : {}),
         },
-      }, { private: false });
+      }, {
+        // ORDINATION verification is never cached, VALID or REVOKED.
+        // A 60-second edge cache would let a credential revoked moments ago
+        // keep answering "valid" — revocation must take effect on the very
+        // next scan. Scroll verification below keeps its existing caching;
+        // scrolls have no revocation lifecycle.
+        private: false,
+        headers: { 'Cache-Control': 'no-store' },
+      });
     }
 
     const scroll = await repo.scrolls.byVerifySlug(slug);
@@ -231,11 +313,17 @@ export function mount(r) {
   /* --------------------------------------------------------- ordination -- */
   /**
    * Only the fields the product actually needs are returned — not the full
-   * row. `approved_by`, `application_json`, and the raw `credential_r2_key`
-   * are deliberately withheld as admin-only/internal; credential availability
-   * is exposed only as a boolean. Retrieving the actual file, once credential
-   * generation exists, goes through the authenticated /api/files/protected
-   * route (see worker/routes/files.js), never this endpoint.
+   * row. `approved_by`, `application_json`, `credential_number`,
+   * `revocation_reason` and the raw `credential_r2_key` are deliberately
+   * withheld as admin-only/internal; credential availability is exposed only
+   * as a boolean.
+   *
+   * M11 Phase 3: `credential_available` now means "issued and not revoked"
+   * (see credentialAvailable), replacing the old `Boolean(credential_r2_key)`
+   * — a test that could never be true, because nothing has ever written that
+   * column. The field NAME and TYPE are unchanged, so no client contract
+   * breaks; the flag simply becomes meaningful. Serving the credential itself
+   * is Phase 5 and does not exist yet.
    */
   r.get('/api/ordination/mine', [requireAuth], async (ctx) => {
     const db = requireDb(ctx);
@@ -245,7 +333,13 @@ export function mount(r) {
         id: o.id,
         status: o.status,
         verify_slug: o.verify_slug,
-        credential_available: Boolean(o.credential_r2_key),
+        credential_available: credentialAvailable(o),
+        // M11 Phase 7 — the member's OWN credential number, so the dashboard
+        // can show it, and a truthful revoked flag so the UI can distinguish
+        // "revoked" from "not issued yet" instead of lumping both into
+        // "unavailable". The private revocation REASON is still never exposed.
+        credential_number: o.credential_number,
+        credential_revoked: Boolean(o.revoked_at),
         created_at: o.created_at,
         updated_at: o.updated_at,
         approved_at: o.approved_at,
@@ -291,6 +385,91 @@ export function mount(r) {
     await send(ctx, { to: ctx.session.email, ...templates.applicationReceived('ordination') });
     await audit(ctx, ACTIONS.ORDINATION_APPLY, { entityType: 'ordination', entityId: ordinationId });
     return json({ ok: true, ordination_id: ordinationId }, { status: 201 });
+  });
+
+  /**
+   * The credential document itself (M11 Phase 5).
+   *
+   * Returns HTML — never JSON — and never a file: M11 stores no object, so
+   * there is nothing in R2 to stream. The document is generated per request
+   * from D1, which is what makes revocation instantaneous: a revoked
+   * credential simply cannot be produced.
+   *
+   * DENIAL IS ALWAYS 404, following the convention already established in
+   * worker/routes/files.js: a member must not be able to learn whether another
+   * member's credential exists by comparing 403 against 404. Pending,
+   * rejected, never-issued, revoked, and someone-else's all return the exact
+   * same response.
+   *
+   * Path note: this cannot shadow /api/ordination/mine or /api/ordination/apply
+   * — those are three-segment paths and this is four.
+   */
+  r.get('/api/ordination/:id/credential', [requireAuth], async (ctx) => {
+    const db = requireDb(ctx);
+    const repo = repos(db);
+    const ordination = await repo.ordinations.byId(ctx.params.id);
+
+    // Ownership is bound to the server-resolved session, never to anything the
+    // client supplied. Role is resolved exactly the way requireAdmin does it
+    // (session claim, else the canonical users row) so there is only ever ONE
+    // role system. Cloudflare Access fronts /api/admin/* rather than this
+    // path, so it is deliberately not asserted here — see the phase report.
+    const role = ctx.session.role ?? (await repo.users.byId(ctx.session.user_id))?.role;
+    const isAdmin = role === 'admin';
+    const isOwner = Boolean(ordination) && ordination.user_id === ctx.session.user_id;
+
+    if (!ordination || (!isOwner && !isAdmin)) throw notFound('Credential not found');
+    // issued_at IS NOT NULL AND revoked_at IS NULL — the single definition of
+    // availability (docs/M11_CREDENTIAL_POLICY.md). Covers pending, rejected,
+    // approved-but-unissued, and revoked in one check.
+    if (!credentialAvailable(ordination)) throw notFound('Credential not found');
+
+    // Never silently produce a malformed verification URL.
+    const siteUrl = ctx.env.SITE_URL;
+    if (!siteUrl) throw new HttpError(503, 'unavailable', 'SITE_URL is not configured');
+
+    /**
+     * Q3: the credential name is application_json.fullName and nothing else.
+     * FAIL CLOSED — a credential bearing the wrong name is worse than no
+     * credential, so `users.display_name` is deliberately NOT a fallback.
+     */
+    const application = fromJsonText(ordination.application_json);
+    const fullName = typeof application?.fullName === 'string' ? application.fullName.trim() : '';
+    if (!fullName) {
+      throw new HttpError(
+        500,
+        'credential_incomplete',
+        'This credential cannot be rendered because its application record is incomplete. Please contact the ministry.',
+      );
+    }
+
+    // An explicit allow-list, not the database row: email, user_id,
+    // approved_by, revoked_by, revocation_reason, the raw application_json,
+    // credential_r2_key, nft_token_id and tx_hash never reach the renderer.
+    const html = renderCredential({
+      fullName,
+      credentialNumber: ordination.credential_number,
+      approvedAt: ordination.approved_at,
+      issuedAt: ordination.issued_at,
+      credentialVersion: ordination.credential_version,
+      verifySlug: ordination.verify_slug,
+      siteUrl,
+    });
+
+    // Only reached after authorization AND state gating succeeded, so the log
+    // records real disclosures. Metadata carries identifiers only — never the
+    // rendered document, the application JSON, or any revocation reason.
+    await audit(ctx, ACTIONS.CREDENTIAL_VIEW, {
+      entityType: 'ordination',
+      entityId: ordination.id,
+      metadata: {
+        credential_number: ordination.credential_number,
+        credential_version: ordination.credential_version,
+        as_admin: isAdmin && !isOwner,
+      },
+    });
+
+    return new Response(html, { status: 200, headers: CREDENTIAL_HEADERS });
   });
 
   /* ---------------------------------------------------------- donations -- */

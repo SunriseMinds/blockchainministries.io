@@ -4,7 +4,8 @@ import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { api } from '@/lib/cloudflareApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, CheckCircle, XCircle, FileText, Award } from 'lucide-react';
+import { Loader2, XCircle, FileText, Award, Ban } from 'lucide-react';
+import { ordinationPresentation, ordinationFields } from './verifyStatus';
 
 const Verify = () => {
   const { slug } = useParams();
@@ -56,16 +57,34 @@ const Verify = () => {
     const { type, data } = verificationResult;
 
     if (type === 'Ordination') {
+      // M11: presentation follows the SERVER's credential_status. A revoked
+      // credential must never render with the valid presentation, so the
+      // decision is made once, in a tested pure function, and simply obeyed
+      // here. Status is carried in TEXT, never by colour alone.
+      const view = ordinationPresentation(data);
+      const rows = ordinationFields(data, view);
+
       return (
         <>
-          <Award className="w-16 h-16 mx-auto text-yellow-400 mb-4" />
-          <CardTitle className="text-2xl text-yellow-300 sacred-font">Ordination Credential Verified</CardTitle>
+          {view.isValid
+            ? <Award className="w-16 h-16 mx-auto text-yellow-400 mb-4" aria-hidden="true" />
+            : <Ban className="w-16 h-16 mx-auto text-red-500 mb-4" aria-hidden="true" />}
+          <CardTitle className={`text-2xl sacred-font ${view.isValid ? 'text-yellow-300' : 'text-red-400'}`}>
+            {view.isValid ? 'Ordination Credential Verified' : 'Ordination Credential Revoked'}
+          </CardTitle>
           <CardContent className="mt-6 text-blue-200 space-y-2">
-            <p><strong className="text-yellow-400">Minister:</strong> {data.profiles?.display_name || data.display_name}</p>
-            <p><strong className="text-yellow-400">Status:</strong> <span className="text-green-400 font-bold">{data.status.toUpperCase()}</span></p>
-            {/* Cloudflare's response has no updated_at (deliberately minimal, public-safe
-                fields only) — approved_at is the correct "date issued" there. */}
-            <p><strong className="text-yellow-400">Date Issued:</strong> {new Date(data.updated_at || data.approved_at).toLocaleDateString()}</p>
+            <p role="status">
+              <strong className="text-yellow-400">Status: </strong>
+              <span className={`font-bold ${view.isValid ? 'text-green-400' : 'text-red-400'}`}>
+                {view.label}
+              </span>
+            </p>
+            <p className={view.isValid ? 'text-blue-200' : 'text-red-300 font-semibold'}>{view.statement}</p>
+            {rows.map(row => (
+              <p key={row.key}>
+                <strong className="text-yellow-400">{row.label}:</strong> {row.value}
+              </p>
+            ))}
           </CardContent>
         </>
       );
@@ -116,10 +135,11 @@ const Verify = () => {
                   <CardContent className="mt-4 text-red-300">{error}</CardContent>
                 </>
               ) : (
-                <>
-                  <CheckCircle className="w-16 h-16 mx-auto text-green-400 mb-4" />
-                  {renderResult()}
-                </>
+                // M11: no unconditional green check here. A successful LOOKUP
+                // is not a valid credential — a revoked one also resolves 200.
+                // Each result branch renders its own status icon so a revoked
+                // credential can never inherit the positive presentation.
+                renderResult()
               )}
             </CardHeader>
           </Card>
