@@ -57,6 +57,11 @@ function App() {
           <Route path="ministers" element={<Ministers />} />
           <Route path="minister/:ministerId" element={<MinisterProfile />} />
           <Route path="verify/:slug" element={<Verify />} />
+          {/* M11: /verify and /verify/ must NOT fall through to the generic
+              "Scroll Not Found" catch-all. A truncated or mistyped verification
+              link is a verification problem, and Verify renders a specific,
+              non-alarming message for it. */}
+          <Route path="verify" element={<Verify />} />
           <Route path="privacy" element={<Privacy />} />
           <Route path="terms" element={<Terms />} />
           

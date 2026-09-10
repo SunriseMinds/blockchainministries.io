@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Award, FileText, BadgeCheck, Gift, Shield, Clock, XCircle } from 'lucide-react';
 import { shouldShowApplyCta } from './membershipCta';
+import { credentialView } from './credentialCard';
 
 const DashboardHome = () => {
   const { user } = useAuth();
@@ -214,21 +215,65 @@ const DashboardHome = () => {
                 icon={<Award />}
                 data={ordinations}
                 emptyText="No ordination requests found in the archives."
-                renderItem={o => (
-                  <>
-                    <div className="flex justify-between items-start">
-                      {/* The Cloudflare /api/ordination/mine response deliberately omits
-                          application_json (internal) — fall back to a generic label there. */}
-                      <p className="font-bold text-yellow-200">{o.application_json?.fullName || 'Ordination Request'}</p>
-                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-                        o.status === 'approved' ? 'bg-green-500/20 text-green-300' :
-                        o.status === 'pending' ? 'bg-yellow-500/20 text-yellow-300' :
-                        'bg-red-500/20 text-red-300'
-                      }`}>{o.status}</span>
-                    </div>
-                    <p className="text-sm text-blue-200">Requested on: {new Date(o.created_at).toLocaleDateString()}</p>
-                  </>
-                )}
+                renderItem={o => {
+                  // M11: availability comes from the server's credential_available
+                  // flag, never re-derived here. A revoked credential gets a
+                  // truthful status and NO active action.
+                  const cred = credentialView(o);
+                  return (
+                    <>
+                      <div className="flex justify-between items-start">
+                        {/* The Cloudflare /api/ordination/mine response deliberately omits
+                            application_json (internal) — fall back to a generic label there. */}
+                        <p className="font-bold text-yellow-200">{o.application_json?.fullName || 'Ordination Request'}</p>
+                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                          o.status === 'approved' ? 'bg-green-500/20 text-green-300' :
+                          o.status === 'pending' ? 'bg-yellow-500/20 text-yellow-300' :
+                          'bg-red-500/20 text-red-300'
+                        }`}>{o.status}</span>
+                      </div>
+                      <p className="text-sm text-blue-200">Requested on: {new Date(o.created_at).toLocaleDateString()}</p>
+
+                      <div className="mt-3 pt-3 border-t border-yellow-600/20">
+                        <p className={`text-sm font-semibold ${
+                          cred.state === 'available' ? 'text-green-300' :
+                          cred.state === 'revoked' ? 'text-red-300' : 'text-blue-300'
+                        }`}>{cred.label}</p>
+                        <p className="text-xs text-blue-300 mt-1">{cred.detail}</p>
+                        {cred.credentialNumber && (
+                          <p className="text-xs text-blue-300 mt-1">
+                            <span className="text-yellow-400">Credential No.:</span>{' '}
+                            <span className="font-mono">{cred.credentialNumber}</span>
+                          </p>
+                        )}
+                        {cred.canView && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {/* Top-level navigation so the HttpOnly session cookie is sent.
+                                The Worker renders the document per request — there is no file
+                                to download, and no server-side PDF. */}
+                            <Button asChild size="sm" className="bg-gradient-to-r from-yellow-400 to-amber-500 text-blue-950 font-bold">
+                              <a href={cred.href} target="_blank" rel="noopener noreferrer">
+                                <FileText className="w-4 h-4 mr-2" /> View Credential
+                              </a>
+                            </Button>
+                            {cred.verifyPath && (
+                              <Button asChild size="sm" variant="outline" className="border-yellow-400/50 text-yellow-300">
+                                <a href={cred.verifyPath} target="_blank" rel="noopener noreferrer">
+                                  <BadgeCheck className="w-4 h-4 mr-2" /> Verify
+                                </a>
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                        {cred.canView && (
+                          <p className="text-[11px] text-blue-400 mt-2">
+                            To save a PDF, open your credential and choose Print → “Save as PDF”.
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  );
+                }}
               />
               <DataCard
                 title="Your Donations"
