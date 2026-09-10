@@ -13,7 +13,7 @@ import { audit } from '@reellink/security/audit.js';
 import { ACTIONS } from '../config/actions.js';
 import { send, templates } from '../email/templates.js';
 import { requireAdmin } from '@reellink/auth/middleware.js';
-import { randomToken } from '@reellink/security/crypto.js';
+import { generateVerifySlug } from '../credential/slug.js';
 import * as xrpl from '@reellink/xrpl/client.js';
 
 // Both memberships.application_status and ordinations.status share this set.
@@ -159,7 +159,13 @@ export function mount(r) {
     if (!ordination) throw notFound('Ordination not found');
 
     // Slug is generated once and preserved thereafter (public URL contract).
-    const verifySlug = ordination.verify_slug || randomToken(12).toLowerCase();
+    //
+    // M11: generated as lowercase alphanumerics only. The previous
+    // `randomToken(12).toLowerCase()` produced base64url, which could begin
+    // with `-` or `_` - and a real phone scan showed a leading hyphen being
+    // stripped by URL auto-detection, truncating /verify/<slug> to /verify/.
+    // See worker/credential/slug.js. Existing slugs are never regenerated.
+    const verifySlug = ordination.verify_slug || generateVerifySlug();
 
     const transitioned = await repo.ordinations.approve(ctx.params.id, {
       approvedBy: ctx.session.user_id,

@@ -4,7 +4,7 @@ import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { api } from '@/lib/cloudflareApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, XCircle, FileText, Award, Ban } from 'lucide-react';
+import { Loader2, XCircle, FileText, Award, Ban, Link2 as LinkIcon } from 'lucide-react';
 import { ordinationPresentation, ordinationFields } from './verifyStatus';
 
 const Verify = () => {
@@ -12,14 +12,19 @@ const Verify = () => {
   const [loading, setLoading] = useState(true);
   const [verificationResult, setVerificationResult] = useState(null);
   const [error, setError] = useState(null);
+  const [incomplete, setIncomplete] = useState(false);
 
   useEffect(() => {
     const verifySlug = async () => {
+      // M11: a verification link that arrived without its identifier - most
+      // often truncated by a link parser, a line break in print, or a partial
+      // copy/paste. This is NOT an error state and must not read like one.
       if (!slug) {
-        setError('No verification code provided.');
+        setIncomplete(true);
         setLoading(false);
         return;
       }
+      setIncomplete(false);
 
       setLoading(true);
       setError(null);
@@ -127,6 +132,18 @@ const Verify = () => {
                 <>
                   <Loader2 className="w-16 h-16 mx-auto text-yellow-400 animate-spin mb-4" />
                   <CardTitle className="text-2xl text-yellow-300 sacred-font">Verifying...</CardTitle>
+                </>
+              ) : incomplete ? (
+                <>
+                  <LinkIcon className="w-16 h-16 mx-auto text-yellow-400 mb-4" aria-hidden="true" />
+                  <CardTitle className="text-2xl text-yellow-300 sacred-font">Verification Link Incomplete</CardTitle>
+                  <CardContent className="mt-4 text-blue-200 space-y-2">
+                    <p>This verification link is missing its credential identifier.</p>
+                    <p className="text-sm text-blue-300">
+                      Please scan the QR code again, or open the full verification address exactly
+                      as printed on the credential.
+                    </p>
+                  </CardContent>
                 </>
               ) : error ? (
                 <>
