@@ -39,6 +39,32 @@ export const templates = {
     text: `Thank you for your interest. After review, your ${kind} application was not approved at this time. You are welcome to contact us with any questions.`,
   }),
   /**
+   * M13 — the ministry's own operations inbox: "something arrived, go look".
+   *
+   * ONE template for every incoming submission, because they all need the same
+   * four things and nothing more. `kind` is a human label ("ordination
+   * application", "contact inquiry"), which also produces the subject line —
+   * keeping the wording identical to what contact and consultation already
+   * sent, so no existing notification contract changes.
+   *
+   * Deliberately carries NO narrative: not the ordination reason or
+   * experience, not the contact message, not the scroll request text. This
+   * mail exists to trigger a review in the admin surface, not to relocate an
+   * applicant's private words into an inbox. `detail` is for a short, safe
+   * label only (e.g. a request type) — never free text from a submitter.
+   */
+  adminSubmissionReceived: ({ kind, name, submittedOn, reviewUrl, detail }) => ({
+    subject: `New ${kind} — Blockchain Ministries`,
+    text: `A new ${kind} was submitted.
+
+Name: ${name || '(not provided)'}
+Submitted: ${submittedOn}${detail ? `\n${detail}` : ''}
+
+Review it in the admin dashboard:
+${reviewUrl}`,
+  }),
+
+  /**
    * M11 Phase 7 — approval and issuance are the same act (Q9), so the
    * ordination approval email now tells the member their credential exists
    * and how to reach it.
