@@ -73,7 +73,10 @@ function App() {
           <Route path="verify-email" element={<VerifyEmail />} />
           <Route path="login/verify" element={<LoginVerify />} />
 
-          <Route path="*" element={<PagePlaceholder title="404 - Scroll Not Found" description="The page you are looking for does not exist in our archives." />} />
+          {/* M12: neutral site-wide wording. "Scroll Not Found" was misleading
+              for every unknown URL — scroll-specific copy belongs only in
+              scroll-specific contexts. /verify has its own copy (M11). */}
+          <Route path="*" element={<PagePlaceholder title="404 - Page Not Found" description="The page you are looking for does not exist." />} />
         </Route>
         
         {/* Member Dashboard */}

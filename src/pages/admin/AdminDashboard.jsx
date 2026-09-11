@@ -69,25 +69,31 @@ const AdminDashboard = () => {
                 <RefreshCw className="h-4 w-4" />
             </Button>
         </CardHeader>
-        <CardContent>
-            <Table>
-                <TableHeader>
-                    <TableRow className="border-b-yellow-600/50">
-                        {columns.map(col => <TableHead key={col.key} className="text-yellow-400">{col.label}</TableHead>)}
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {data.map(item => (
-                        <TableRow key={item.id} className="border-b-blue-900/50">
-                            {columns.map(col => (
-                                <TableCell key={col.key} className="py-3 text-blue-200 truncate" style={{maxWidth: '150px'}}>
-                                    {col.render ? col.render(item[col.key], item) : String(item[col.key] ?? 'N/A')}
-                                </TableCell>
-                            ))}
+        {/* M12: the table scrolls horizontally inside its own container instead
+            of crushing every cell into a 150px truncation. Columns keep their
+            natural width and stay aligned; the page itself never scrolls
+            sideways. */}
+        <CardContent className="px-0 sm:px-6">
+            <div className="w-full overflow-x-auto">
+                <Table className="min-w-[640px]">
+                    <TableHeader>
+                        <TableRow className="border-b-yellow-600/50">
+                            {columns.map(col => <TableHead key={col.key} className="text-yellow-400 whitespace-nowrap">{col.label}</TableHead>)}
                         </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
+                    </TableHeader>
+                    <TableBody>
+                        {data.map(item => (
+                            <TableRow key={item.id} className="border-b-blue-900/50">
+                                {columns.map(col => (
+                                    <TableCell key={col.key} className="py-3 text-blue-200 align-top max-w-[22rem] break-words">
+                                        {col.render ? col.render(item[col.key], item) : String(item[col.key] ?? 'N/A')}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
         </CardContent>
       </Card>
     );

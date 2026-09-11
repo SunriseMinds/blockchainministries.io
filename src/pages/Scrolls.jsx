@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { ScrollText, Download, Search } from 'lucide-react';
+import { ScrollText, Clock, Search } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -161,13 +161,22 @@ const Scrolls = () => {
                     <CardContent className="flex-grow">
                       <CardDescription className="text-blue-200">{scroll.description}</CardDescription>
                     </CardContent>
+                    {/* M12: these documents are not yet published. Presenting a
+                        download that 404s is worse than saying so plainly, so
+                        the action is disabled and labelled truthfully until the
+                        real files exist. Requests go through the form below. */}
                     <div className="p-6 pt-0">
-                      <Button asChild className="w-full bg-gradient-to-r from-yellow-400 to-amber-500 text-blue-950 font-bold hover:from-yellow-500 hover:to-amber-600 transition-all duration-300 transform hover:scale-105">
-                        <a href={scroll.link} target="_blank" rel="noopener noreferrer">
-                          <Download className="mr-2 h-4 w-4" />
-                          Download Scroll
-                        </a>
+                      <Button
+                        disabled
+                        aria-disabled="true"
+                        className="w-full bg-blue-900/40 text-blue-200 font-semibold border border-yellow-400/20 cursor-not-allowed hover:bg-blue-900/40"
+                      >
+                        <Clock className="mr-2 h-4 w-4" aria-hidden="true" />
+                        Preparing for Release
                       </Button>
+                      <p className="text-xs text-blue-300 mt-2 text-center">
+                        Request a copy using the form below.
+                      </p>
                     </div>
                   </Card>
                 </motion.div>
