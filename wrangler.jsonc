@@ -50,7 +50,20 @@
     // (no --env flag: production is this top-level/default environment).
     // Not run by this change — requires separate, explicit authorization.
     "EMAIL_PROVIDER": "resend",
-    "EMAIL_FROM": "contact@blockchainministries.io"
+    "EMAIL_FROM": "contact@blockchainministries.io",
+    // M13 — where operational submissions are announced (contact, scroll
+    // request, membership, ordination, consultation). Configuration, not a
+    // secret: it is a destination, carries no authority, and appears in no
+    // audit metadata. It belongs HERE rather than in the dashboard because
+    // Workers Builds deploys with `wrangler deploy`, which replaces the
+    // Worker's vars from this file — a dashboard-set var would be silently
+    // wiped by the next deploy.
+    //
+    // Absent, this is not an error: packages/email/src/providers.js returns
+    // {sent:false, reason:'ADMIN_NOTIFY_EMAIL not configured'} and the route
+    // records notify.failed while the submission still succeeds. env.preview
+    // deliberately leaves it UNSET so that path stays exercised.
+    "ADMIN_NOTIFY_EMAIL": "contact@blockchainministries.io"
   },
   "d1_databases": [
     {
