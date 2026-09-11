@@ -29,14 +29,25 @@ const DashboardLayout = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-950 via-[#0A192F] to-black font-sans text-white">
       <header className="bg-blue-950/50 backdrop-blur-lg p-4 sticky top-0 z-50 border-b border-yellow-400/20">
-        <div className="container mx-auto flex justify-between items-center">
-          <Link to={isAdmin ? "/admin" : "/dashboard"} className="flex items-center space-x-3 group">
-            <LayoutDashboard className="w-8 h-8 text-yellow-400 group-hover:text-yellow-300 transition-colors" />
-            <span className="font-bold text-xl text-yellow-300 group-hover:text-yellow-200 transition-colors">
+        {/* The header row WRAPS instead of overflowing.
+            `header p-4` and Tailwind's `container` (padding: 2rem, see
+            tailwind.config.js) together spend 96px of horizontal room before
+            any content, leaving 224px at 320px wide. The brand (138px) and the
+            action group (213px) are 351px of rigid content — both were flex
+            items with the default `min-width: auto`, so neither could shrink
+            and the group escaped to a fixed right edge of 399px. That is the
+            whole of the old 9px overflow at 390 and 79px at 320.
+            Wrapping puts them on separate lines; `min-w-0` + `truncate` lets
+            the brand give way rather than push. Nothing is hidden to achieve
+            this, and no axis is clipped. */}
+        <div className="container mx-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <Link to={isAdmin ? "/admin" : "/dashboard"} className="flex min-w-0 items-center space-x-3 group">
+            <LayoutDashboard className="w-8 h-8 shrink-0 text-yellow-400 group-hover:text-yellow-300 transition-colors" />
+            <span className="min-w-0 truncate font-bold text-xl text-yellow-300 group-hover:text-yellow-200 transition-colors">
               {isAdmin ? 'Admin Sanctuary' : 'Minister Dashboard'}
             </span>
           </Link>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {isAdmin && (
               <Button asChild variant="ghost" size="sm" className="text-yellow-400 hover:bg-yellow-400/10 hover:text-yellow-300">
                 <Link to="/dashboard">
@@ -45,12 +56,22 @@ const DashboardLayout = () => {
                 </Link>
               </Button>
             )}
-            <Button asChild variant="link" size="sm" className="text-yellow-300 hover:text-yellow-200 p-0 h-auto hidden sm:inline-flex">
+            {/* Was `hidden sm:inline-flex` — unreachable below 640px, which is
+                where most members actually are. Now it wraps like everything
+                else instead of disappearing. */}
+            {/* min-h-9 matches the 36px height of the buttons beside it: as a
+                desktop-only text link it was a 20px-tall target, which is too
+                thin for a thumb now that it is reachable on phones. */}
+            <Button asChild variant="link" size="sm" className="text-yellow-300 hover:text-yellow-200 p-0 h-auto min-h-9">
               <a href={trustlineUrl} target="_blank" rel="noopener noreferrer">
                 Set EFT TrustLine
               </a>
             </Button>
-            <span className="text-sm text-blue-300 hidden sm:block">Welcome, {profile?.display_name || user?.email}</span>
+            {/* Identity text only; the role itself is always stated by the
+                heading beside it ("Admin Sanctuary" / "Minister Dashboard"),
+                so at phone widths this yields the room rather than wrapping a
+                long email onto a line of its own. */}
+            <span className="hidden max-w-[14rem] truncate text-sm text-blue-300 sm:block">Welcome, {profile?.display_name || user?.email}</span>
             <Button onClick={handleLogout} variant="outline" size="sm" className="text-yellow-400 border-yellow-400/50 hover:bg-yellow-400/10">
               <LogOut className="w-4 h-4 mr-2" />
               Logout
@@ -61,7 +82,9 @@ const DashboardLayout = () => {
       
       {isAdmin && (
         <nav className="bg-black/20 border-b border-yellow-400/10">
-          <div className="container mx-auto flex items-center gap-4 p-2">
+          {/* Same reasoning as the header row: two rigid links plus the
+              container's 2rem padding exceed 320px, so this wraps too. */}
+          <div className="container mx-auto flex flex-wrap items-center gap-2 p-2">
             {adminNavLinks.map(link => (
               <Link
                 key={link.href}
