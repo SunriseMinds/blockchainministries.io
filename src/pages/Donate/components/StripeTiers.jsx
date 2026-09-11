@@ -4,8 +4,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Gem, Shield, Crown } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { Link } from 'react-router-dom';
 import { api } from '@/lib/cloudflareApi';
 import { useAuth } from '@/contexts/AuthProvider';
+import { CHECKOUT_ENABLED } from './checkoutAvailability';
 
 const tiers = [
   {
@@ -121,20 +123,38 @@ const StripeTiers = () => {
                 </ul>
               </CardContent>
               <CardFooter>
+                {/* M12: recurring giving is not yet operational. Offering a
+                    button that can only fail is not honest, so the action is
+                    disabled until real Stripe prices are configured — at which
+                    point CHECKOUT_ENABLED flips and handleCheckout takes over
+                    unchanged. */}
                 <Button
-                  onClick={() => handleCheckout(tier.priceId)}
-                  className={`w-full font-bold text-lg py-6 text-white ${tier.buttonClass}`}
+                  onClick={CHECKOUT_ENABLED ? () => handleCheckout(tier.priceId) : undefined}
+                  disabled={!CHECKOUT_ENABLED}
+                  aria-disabled={!CHECKOUT_ENABLED}
+                  className={
+                    CHECKOUT_ENABLED
+                      ? `w-full font-bold text-lg py-6 text-white ${tier.buttonClass}`
+                      : 'w-full font-semibold text-base py-6 bg-blue-900/40 text-blue-200 border border-yellow-400/20 cursor-not-allowed hover:bg-blue-900/40'
+                  }
                 >
-                  Choose {tier.name}
+                  {CHECKOUT_ENABLED ? `Choose ${tier.name}` : 'Coming Soon'}
                 </Button>
               </CardFooter>
             </Card>
           </motion.div>
         ))}
       </div>
-      <p className="text-xs text-blue-400 mt-8">
-        Note: Tier price IDs are placeholders. You must create products and prices in your Stripe dashboard and replace them.
-      </p>
+      {!CHECKOUT_ENABLED && (
+        <p className="text-sm text-blue-200 mt-8 max-w-2xl mx-auto">
+          Covenant tiers are being prepared and are not yet open for enrolment. To support the
+          ministry today, please use the giving options above, or{' '}
+          <Link to="/contact" className="text-yellow-300 underline underline-offset-4 hover:text-yellow-200">
+            contact the ministry
+          </Link>{' '}
+          about current arrangements.
+        </p>
+      )}
     </div>
   );
 };

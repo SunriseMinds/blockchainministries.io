@@ -22,10 +22,12 @@ test('both /verify/:slug and bare /verify are routed', () => {
   assert.match(APP, /path="verify"\s+element=\{<Verify\s*\/>\}/, 'bare /verify route missing');
 });
 
-test('REGRESSION: /verify must not fall through to the Scroll Not Found catch-all', () => {
+test('REGRESSION: /verify must not fall through to the generic 404 catch-all', () => {
   // The catch-all still exists for genuinely unknown paths...
   assert.match(APP, /path="\*"/);
-  assert.match(APP, /404 - Scroll Not Found/);
+  assert.match(APP, /404 - (Page|Scroll) Not Found/, 'a generic 404 must still be routed');
+  // (M12 renamed this copy from "Scroll Not Found" to "Page Not Found"; what
+  // this test actually guards is the ORDERING below, not the wording.)
   // ...but the verify routes are declared before it, so /verify never reaches it.
   const verifyIdx = APP.indexOf('path="verify"');
   const catchAllIdx = APP.indexOf('path="*"');
