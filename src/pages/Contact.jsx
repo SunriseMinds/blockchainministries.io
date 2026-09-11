@@ -56,7 +56,16 @@ const Contact = () => {
                     <div className="p-3 bg-yellow-400/10 rounded-full text-yellow-400">
                         <Mail className="w-6 h-6" />
                     </div>
-                    <span className="text-blue-200 hover:text-yellow-300 transition-colors">contact@blockchainministries.io</span>
+                    {/* The address is one unbreakable 256px token. Its row is
+                        exactly 256px at 320px wide and the icon takes the
+                        first 64px, so with the default `min-width: auto` and
+                        `overflow-wrap: normal` the span could neither shrink
+                        nor break — it landed at x=352 and dragged the page
+                        32px sideways. `break-words` breaks it ONLY when it
+                        genuinely does not fit, so at 390px and above it still
+                        renders on a single line exactly as before. The address
+                        itself is unchanged. */}
+                    <span className="min-w-0 break-words text-blue-200 hover:text-yellow-300 transition-colors">contact@blockchainministries.io</span>
                 </div>
                 <div className="flex items-center gap-4 text-lg">
                     <div className="p-3 bg-yellow-400/10 rounded-full text-yellow-400">
