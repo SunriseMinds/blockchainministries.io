@@ -25,6 +25,12 @@ export const ACTIONS = defineActions({
   // Notification delivery failed AFTER an authoritative state change. The
   // state stands; this records that the member was not reached.
   CREDENTIAL_NOTIFY_FAILED: 'credential.notify_failed',
+  // M13 — any transactional or operational notification that did not deliver.
+  // Email is a side effect, never transactional authority: the business row is
+  // already committed by the time this is written. This exists so an
+  // administrator can SEE what never landed instead of it vanishing into
+  // console output.
+  NOTIFY_FAILED: 'notify.failed',
   CONTACT_SUBMIT: 'contact.submit',
   SCROLL_REQUEST_SUBMIT: 'scroll_request.submit',
   CONSULTATION_REQUEST: 'consultation.request',

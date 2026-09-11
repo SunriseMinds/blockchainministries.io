@@ -66,6 +66,88 @@ const CREDENTIAL_HEADERS = Object.freeze({
   'X-Frame-Options': 'DENY',
 });
 
+/* ==========================================================================
+ * M13 — notification safety.
+ *
+ * THE INVARIANT: email is a side effect, never transactional authority.
+ *
+ * Once a business row is committed to D1, nothing about delivering a message
+ * may make that operation look like it failed. Before M13, both the applicant
+ * confirmation and the admin notification were bare `await`s: a thrown
+ * provider/config error (send() raises HttpError when EMAIL_API_KEY is
+ * missing, or on an unknown EMAIL_PROVIDER) surfaced as a 500 *after* the
+ * insert — the visitor saw a failed submission for a record that exists, and
+ * the business audit never got written either.
+ *
+ * Everything below is fail-soft by construction and cannot throw.
+ * ========================================================================== */
+
+/** Trim a failure reason to something safe and loggable. Never a message body. */
+function shortReason(value, fallback) {
+  const s = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return s ? s.slice(0, 120) : fallback;
+}
+
+/**
+ * Run one delivery attempt and absorb every way it can fail.
+ *
+ * @returns {Promise<{sent:boolean, reason?:string}>} never rejects
+ */
+async function safeNotify(ctx, attempt, { audience, kind, entityType, entityId }) {
+  let sent = false;
+  let reason;
+
+  try {
+    const result = await attempt();
+    sent = Boolean(result?.sent);
+    if (!sent) reason = shortReason(result?.reason, 'not_sent');
+  } catch (err) {
+    sent = false;
+    reason = shortReason(err?.message, 'threw');
+  }
+
+  if (!sent) {
+    // Recorded so an administrator can see what never landed. Identifiers and
+    // a short reason only — never the message body, never applicant narrative,
+    // never tokens or keys.
+    //
+    // audit() already swallows its own errors, but it is wrapped anyway: a
+    // secondary failure while reporting a failure must not become the thing
+    // that breaks an already-committed request.
+    try {
+      await audit(ctx, ACTIONS.NOTIFY_FAILED, {
+        entityType,
+        entityId,
+        metadata: { audience, kind, reason },
+      });
+    } catch {
+      // Deliberately swallowed — see above.
+    }
+  }
+
+  return sent ? { sent: true } : { sent: false, reason };
+}
+
+/** Notify the ministry's operations inbox. Fail-soft. */
+function notifyOps(ctx, message, meta) {
+  return safeNotify(ctx, () => notifyAdmins(ctx, message), { audience: 'admin', ...meta });
+}
+
+/** Notify the person who submitted. Fail-soft, same guarantees. */
+function notifySubmitter(ctx, to, message, meta) {
+  return safeNotify(ctx, () => send(ctx, { to, ...message }), { audience: 'submitter', ...meta });
+}
+
+/** `2026-09-11 01:51 UTC` — deterministic, timezone-independent. */
+function submittedOn(iso = new Date().toISOString()) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`;
+}
+
+/** Where an administrator goes to act on an incoming submission. */
+const reviewUrl = (ctx) => `${ctx.env.SITE_URL || ctx.url.origin}/admin/management`;
+
 export function mount(r) {
   /* ------------------------------------------------------------ profile -- */
   r.get('/api/profile', [requireAuth], async (ctx) => {
@@ -119,11 +201,17 @@ export function mount(r) {
       inquiryType: v.str(body, 'inquiry_type', { required: false, max: 100 }),
       ip,
     });
-    await notifyAdmins(ctx, {
-      subject: 'New contact inquiry — Blockchain Ministries',
-      text: `A new contact inquiry was submitted (id ${id}). View it in the admin dashboard.`,
-    });
+    // Business audit FIRST: the inquiry is committed, so its record of
+    // existence must not depend on a later notification attempt.
     await audit(ctx, ACTIONS.CONTACT_SUBMIT, { entityType: 'contact_inquiry', entityId: id });
+    // Same notification as before, now fail-soft. The message body is
+    // deliberately not included — it is in the inquiry record.
+    await notifyOps(ctx, templates.adminSubmissionReceived({
+      kind: 'contact inquiry',
+      name: v.str(body, 'name', { max: 200 }),
+      submittedOn: submittedOn(),
+      reviewUrl: reviewUrl(ctx),
+    }), { kind: 'contact_inquiry', entityType: 'contact_inquiry', entityId: id });
     return json({ ok: true, id }, { status: 201 });
   });
 
@@ -142,6 +230,16 @@ export function mount(r) {
       ip,
     });
     await audit(ctx, ACTIONS.SCROLL_REQUEST_SUBMIT, { entityType: 'scroll_request', entityId: id });
+    // M13: scroll requests previously notified nobody at all. The request
+    // TYPE is a short safe label and is useful for triage; the request
+    // MESSAGE is not included — it stays in the record.
+    await notifyOps(ctx, templates.adminSubmissionReceived({
+      kind: 'scroll request',
+      name: v.str(body, 'name', { max: 200 }),
+      submittedOn: submittedOn(),
+      reviewUrl: reviewUrl(ctx),
+      detail: `Request type: ${v.str(body, 'request_type', { max: 100 })}`,
+    }), { kind: 'scroll_request', entityType: 'scroll_request', entityId: id });
     return json({ ok: true, id }, { status: 201 });
   });
 
@@ -290,8 +388,18 @@ export function mount(r) {
       membershipId = await repo.memberships.create({ userId: ctx.session.user_id, membershipType, applicationJson });
     }
 
-    await send(ctx, { to: ctx.session.email, ...templates.applicationReceived('membership') });
     await audit(ctx, ACTIONS.MEMBERSHIP_APPLY, { entityType: 'membership', entityId: membershipId });
+    // Applicant confirmation preserved, now fail-soft.
+    await notifySubmitter(ctx, ctx.session.email, templates.applicationReceived('membership'),
+      { kind: 'membership_confirmation', entityType: 'membership', entityId: membershipId });
+    // M13: the ministry is now told an application arrived. Name, time and a
+    // review link only — no application payload.
+    await notifyOps(ctx, templates.adminSubmissionReceived({
+      kind: 'membership application',
+      name: application.displayName,
+      submittedOn: submittedOn(),
+      reviewUrl: reviewUrl(ctx),
+    }), { kind: 'membership_application', entityType: 'membership', entityId: membershipId });
     return json({ ok: true, membership_id: membershipId }, { status: 201 });
   });
 
@@ -382,8 +490,21 @@ export function mount(r) {
       ordinationId = await repo.ordinations.create({ userId: ctx.session.user_id, applicationJson });
     }
 
-    await send(ctx, { to: ctx.session.email, ...templates.applicationReceived('ordination') });
     await audit(ctx, ACTIONS.ORDINATION_APPLY, { entityType: 'ordination', entityId: ordinationId });
+    // Applicant confirmation preserved, now fail-soft.
+    await notifySubmitter(ctx, ctx.session.email, templates.applicationReceived('ordination'),
+      { kind: 'ordination_confirmation', entityType: 'ordination', entityId: ordinationId });
+    // M13: THE gap that blocked the first real ordination — nobody was told an
+    // application had arrived. Carries the applicant's name, the time, and a
+    // link to the review surface. The `reason` and `experience` narrative is
+    // deliberately NOT emailed: it is the applicant's private account of their
+    // calling and belongs in the admin review screen, not an inbox.
+    await notifyOps(ctx, templates.adminSubmissionReceived({
+      kind: 'ordination application',
+      name: application.fullName,
+      submittedOn: submittedOn(),
+      reviewUrl: reviewUrl(ctx),
+    }), { kind: 'ordination_application', entityType: 'ordination', entityId: ordinationId });
     return json({ ok: true, ordination_id: ordinationId }, { status: 201 });
   });
 
@@ -631,12 +752,16 @@ export function mount(r) {
       requestedAt: v.str(body, 'requested_at', { required: false, max: 40 }),
     });
     const topic = v.str(body, 'topic', { required: false, max: 500 });
-    await send(ctx, { to: v.email(body), ...templates.consultationRequested(topic) });
-    await notifyAdmins(ctx, {
-      subject: 'New consultation request — Blockchain Ministries',
-      text: `A new consultation request was submitted (id ${id}).`,
-    });
     await audit(ctx, ACTIONS.CONSULTATION_REQUEST, { entityType: 'consultation', entityId: id });
+    // Requester confirmation preserved, now fail-soft.
+    await notifySubmitter(ctx, v.email(body), templates.consultationRequested(topic),
+      { kind: 'consultation_confirmation', entityType: 'consultation', entityId: id });
+    await notifyOps(ctx, templates.adminSubmissionReceived({
+      kind: 'consultation request',
+      name: v.str(body, 'name', { max: 200 }),
+      submittedOn: submittedOn(),
+      reviewUrl: reviewUrl(ctx),
+    }), { kind: 'consultation', entityType: 'consultation', entityId: id });
     return json({ ok: true, id }, { status: 201 });
   });
 
