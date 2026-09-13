@@ -169,6 +169,39 @@ test('5. a placeholder tier fails closed', async () => {
   } finally { stub.restore(); close(); }
 });
 
+test('5b. Stripe recurring REQUIRES authentication, like PayPal recurring', async () => {
+  const { db, close } = setup();
+  const stub = stubStripe();
+  try {
+    // M14.5B ratified: recurring monthly support requires authentication,
+    // consistent across rails. PayPal enforces it with [requireAuth]; Stripe
+    // must too. Without it, an anonymous subscription Checkout carries no
+    // metadata.user_id, so `checkout.session.completed` resolves no user, the
+    // webhook records nothing, and a paying subscriber is orphaned — real
+    // money with no membership link and no subscription row.
+    //
+    // Unreachable while every tier's price is a placeholder, and that is
+    // exactly the point: it would activate silently the moment real Stripe
+    // Price IDs are configured.
+    for (const key of TIER_KEYS) {
+      const res = await post({
+        db, path: '/api/donations/stripe/checkout',
+        body: { mode: 'subscription', tier: key, request_id: REQ },   // no session
+      });
+      assert.equal(res.status, 401, `anonymous recurring must be refused for ${key}`);
+    }
+    assert.equal(stub.stripe().length, 0, 'Stripe must not be contacted for an anonymous subscription');
+
+    // One-time giving stays anonymous-friendly — that was ratified in M14.1
+    // and must not be tightened by this guard.
+    const oneTime = await post({
+      db, path: '/api/donations/stripe/checkout',
+      body: { mode: 'payment', amount_cents: 2500, request_id: REQ },
+    });
+    assert.equal(oneTime.status, 201, 'anonymous one-time giving must still work');
+  } finally { stub.restore(); close(); }
+});
+
 test('6. a configured tier resolves to its server-side price, structurally', () => {
   assert.equal(resolveTier('supporter'), null, 'placeholder today');
   assert.equal(resolveTier('nope'), null);

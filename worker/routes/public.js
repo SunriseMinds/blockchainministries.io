@@ -880,6 +880,19 @@ export function mount(r) {
     let items;
     let operation;
     if (mode === 'subscription') {
+      // M14.5B ratified that recurring monthly support requires
+      // authentication, consistently across rails — the PayPal route enforces
+      // it with [requireAuth]. This is the Stripe half, which was missing.
+      //
+      // It is not cosmetic symmetry: an anonymous subscription Checkout
+      // carries no `metadata.user_id`, so `checkout.session.completed`
+      // resolves no user, the webhook persists nothing, and a paying
+      // subscriber is orphaned — real money with no membership link and no
+      // subscription row. The guard cannot live in route middleware because
+      // one-time giving on this same route is deliberately anonymous.
+      if (!ctx.session?.user_id) {
+        throw new HttpError(401, 'unauthorized', 'Please sign in to set up monthly support');
+      }
       // Closed vocabulary, not a string that resembles a Stripe id.
       const tier = resolveTier(v.oneOf(body, 'tier', TIER_KEYS));
       if (!tier) {
