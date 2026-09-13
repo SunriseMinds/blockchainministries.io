@@ -487,64 +487,372 @@ export const consultations = (db) => ({
 });
 
 /* -------------------------------------------------------------- donations -- */
+/**
+ * M14.3 — provider-neutral. Stripe, PayPal and XRPL rows live in one table
+ * and share one idempotency key, but their amounts do NOT share a unit: fiat
+ * is `amount_cents`, XRP is `amount_drops`. The schema's chk_amount_units
+ * makes the mixed case unrepresentable rather than merely discouraged.
+ */
 export const donations = (db) => ({
+  /**
+   * A member's own history. Deliberately column-listed, not SELECT * — a
+   * donor has no need for the provider transaction id, the destination tag or
+   * the ledger index, and a new column added later must not appear here by
+   * accident.
+   */
   listByUser: (userId, opts) => {
     const p = page(opts);
     return q(db).all(
-      `SELECT id, provider, amount_cents, currency, status, receipt_url, created_at
+      `SELECT id, provider, amount_cents, amount_drops, currency, status, reference_url, created_at
          FROM donations WHERE user_id = ? ORDER BY created_at DESC${p.clause}`,
       [userId, ...p.params],
     );
   },
+  /** Admin list. Also column-listed; the view layer projects again (M13). */
   list(opts) {
     const p = page(opts);
-    return q(db).all(`SELECT * FROM donations ORDER BY created_at DESC${p.clause}`, p.params);
+    return q(db).all(
+      `SELECT id, user_id, provider, provider_txn_id, amount_cents, amount_drops,
+              currency, status, reference_url, xrpl_destination_tag, xrpl_ledger_index, created_at
+         FROM donations ORDER BY created_at DESC${p.clause}`,
+      p.params,
+    );
   },
-  byStripeEventId: (stripeEventId) =>
-    q(db).first('SELECT * FROM donations WHERE stripe_event_id = ?', [stripeEventId]),
+  byProviderEventId: (providerEventId) =>
+    q(db).first('SELECT * FROM donations WHERE provider_event_id = ?', [providerEventId]),
+
+  byProviderTxnId: (providerTxnId) =>
+    q(db).first('SELECT * FROM donations WHERE provider_txn_id = ?', [providerTxnId]),
 
   /**
-   * Webhook-safe insert. The UNIQUE constraint on stripe_event_id (Stripe's
-   * own event id, guaranteed unique per delivery) plus INSERT OR IGNORE makes
-   * a redelivered webhook a true no-op — unlike a provider charge/session id,
-   * which is not guaranteed unique across event types.
+   * M14.5 — transition an EXISTING gift, for a provider lifecycle event.
+   *
+   * A refund or reversal is not a second donation: it is news about the first
+   * one. It arrives with its own webhook event id, so inserting on that id
+   * would manufacture a phantom gift. Instead the original is located by the
+   * provider's capture/transaction id — which `idx_donations_txn` indexes —
+   * and its status is moved.
+   *
+   * Idempotent by construction: the `status <> ?` guard changes 0 rows on a
+   * redelivery, so PayPal's retries converge instead of accumulating.
+   *
+   * SCOPED BY PROVIDER (M14 integration checkpoint). `provider_txn_id` is
+   * indexed but not unique, and it holds a different KIND of identifier on
+   * every rail — a Stripe charge id, a PayPal capture or sale id, a 64-hex
+   * XRPL transaction hash. Those shapes are disjoint in practice, so a
+   * collision is implausible; but a provider-blind UPDATE DEPENDS on that
+   * coincidence, and the cross-rail integration test proved the consequence:
+   * one PayPal refund silently moved a Stripe donation as well, and then
+   * returned false — so the route reported "no matching donation" for a
+   * refund it had in fact applied twice, to the wrong rows.
+   *
+   * The provider is now part of the WHERE clause, which makes cross-rail
+   * contamination unrepresentable rather than merely unlikely.
+   *
+   * @returns {Promise<boolean>} true only when this call actually moved it
    */
-  async recordIfNew({ userId = null, provider, stripeEventId, providerChargeId = null, amountCents, currency = 'usd', status, receiptUrl = null }) {
-    const id = uuid();
+  async transitionByProviderTxnId(providerTxnId, status, provider) {
+    if (!providerTxnId || !provider) return false;
     const meta = await q(db).run(
-      `INSERT OR IGNORE INTO donations
-         (id, user_id, provider, stripe_event_id, provider_charge_id, amount_cents, currency, status, receipt_url, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, userId, provider, stripeEventId, providerChargeId, amountCents, currency, status, receiptUrl, nowIso()],
+      'UPDATE donations SET status = ? WHERE provider = ? AND provider_txn_id = ? AND status <> ?',
+      [status, provider, providerTxnId, status],
+    );
+    return (meta.changes ?? 0) === 1;
+  },
+
+  /**
+   * M14.4 — the XRPL reconciliation high-water mark.
+   *
+   * Deliberately DERIVED rather than stored in a checkpoint column, which
+   * would have needed another migration. It is also safer: the cursor is the
+   * highest ledger this ministry has actually RECORDED, so it cannot advance
+   * past a payment that failed to persist. A stored cursor can; this one is
+   * incapable of it by construction.
+   *
+   * @returns {Promise<number|null>} null when no XRP gift has ever been recorded
+   */
+  async maxXrplLedgerIndex() {
+    const row = await q(db).first(
+      `SELECT MAX(xrpl_ledger_index) AS ledger FROM donations
+        WHERE provider = 'xrpl' AND xrpl_ledger_index IS NOT NULL`,
+    );
+    const v = row?.ledger;
+    return Number.isFinite(v) ? v : null;
+  },
+
+  /**
+   * Webhook- and ledger-safe insert, idempotent across every rail.
+   *
+   * `providerEventId` is the delivery/transaction identity — Stripe's
+   * `event.id`, PayPal's webhook event id, or an XRPL transaction hash. Each
+   * is globally unique and immutable, which is what makes UNIQUE + INSERT OR
+   * IGNORE a true no-op on a redelivery. It is deliberately NOT the provider's
+   * charge/capture id, which is not unique across event types.
+   *
+   * Amount is passed as exactly one of `amountCents` (fiat) or `amountDrops`
+   * (XRPL); the database rejects any other combination.
+   */
+  async recordIfNew({
+    userId = null, provider, providerEventId, providerTxnId = null,
+    amountCents = null, amountDrops = null, currency = 'usd', status,
+    referenceUrl = null, xrplDestinationTag = null, xrplLedgerIndex = null,
+  }) {
+    const id = uuid();
+    // `ON CONFLICT(provider_event_id) DO NOTHING` rather than INSERT OR
+    // IGNORE. The two look equivalent and are not: OR IGNORE swallows EVERY
+    // constraint violation, so a row failing the provider CHECK or the
+    // amount-units CHECK would vanish silently and this would report "already
+    // recorded". For a table that represents money arriving, a malformed row
+    // must raise. Only the duplicate-delivery conflict is a no-op.
+    const meta = await q(db).run(
+      `INSERT INTO donations
+         (id, user_id, provider, provider_event_id, provider_txn_id, amount_cents, amount_drops,
+          currency, status, reference_url, xrpl_destination_tag, xrpl_ledger_index, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(provider_event_id) DO NOTHING`,
+      [id, userId, provider, providerEventId, providerTxnId, amountCents, amountDrops,
+       currency, status, referenceUrl, xrplDestinationTag, xrplLedgerIndex, nowIso()],
     );
     return (meta.changes ?? 0) === 1 ? id : null;
   },
 });
 
-/* ----------------------------------------------------------- subscriptions -- */
-// Structural support only (M2.5) for the paid membership tier's recurring
-// billing state. Populated exclusively by a future Stripe webhook handler —
-// nothing here calls Stripe, and no route wires this up yet.
-export const subscriptions = (db) => ({
-  byUserId: (userId) => q(db).first('SELECT * FROM subscriptions WHERE user_id = ?', [userId]),
-  byStripeSubscriptionId: (stripeSubscriptionId) =>
-    q(db).first('SELECT * FROM subscriptions WHERE stripe_subscription_id = ?', [stripeSubscriptionId]),
+/* ------------------------------------------------------- donation intents -- */
+/**
+ * M14.3 — XRPL reconciliation state only. The verification flow that consumes
+ * these arrives in M14.4; this is the durable model it will need.
+ *
+ * A destination tag is never reused, even after expiry: a donor's wallet does
+ * not know about our expiry window, and a late payment against a recycled tag
+ * would be credited to the wrong person.
+ */
+export const donationIntents = (db) => ({
+  byDestinationTag: (tag) =>
+    q(db).first('SELECT * FROM donation_intents WHERE destination_tag = ?', [tag]),
+  byId: (id) => q(db).first('SELECT * FROM donation_intents WHERE id = ?', [id]),
+
+  listOpen(opts) {
+    const p = page(opts);
+    return q(db).all(
+      `SELECT * FROM donation_intents WHERE status = 'open' ORDER BY created_at DESC${p.clause}`,
+      p.params,
+    );
+  },
+
+  /** @returns {string|null} the new id, or null if the tag was already taken. */
+  async create({ userId = null, destinationTag, expectedAmountDrops = null, expiresAt }) {
+    const id = uuid();
+    // Same reasoning as donations.recordIfNew: only a TAG COLLISION is a
+    // benign no-op. An out-of-range tag or a malformed amount must raise
+    // rather than be silently discarded.
+    const meta = await q(db).run(
+      `INSERT INTO donation_intents
+         (id, user_id, provider, destination_tag, expected_amount_drops, currency, status, expires_at, created_at)
+       VALUES (?, ?, 'xrpl', ?, ?, 'XRP', 'open', ?, ?)
+       ON CONFLICT(destination_tag) DO NOTHING`,
+      [id, userId, destinationTag, expectedAmountDrops, expiresAt, nowIso()],
+    );
+    return (meta.changes ?? 0) === 1 ? id : null;
+  },
 
   /**
-   * Idempotent upsert keyed on stripe_subscription_id — safe to call for
-   * every subscription-lifecycle webhook event without a prior read.
+   * Confirm exactly once. The `WHERE status = 'open'` gate changes 0 rows on a
+   * retry, the same idempotent-transition pattern the ordination and
+   * membership repositories already use.
    */
-  async upsertFromWebhook({ userId, stripeSubscriptionId, stripeCustomerId, status, currentPeriodEnd = null }) {
+  async confirm(id, { providerEventId, now = nowIso() }) {
+    const meta = await q(db).run(
+      `UPDATE donation_intents
+          SET status = 'confirmed', confirmed_at = ?, provider_event_id = ?
+        WHERE id = ? AND status = 'open'`,
+      [now, providerEventId, id],
+    );
+    return (meta.changes ?? 0) === 1;
+  },
+
+  /** Mark lapsed intents expired. Auditable, never deleted. */
+  async expireDue(now = nowIso()) {
+    const meta = await q(db).run(
+      `UPDATE donation_intents SET status = 'expired'
+        WHERE status = 'open' AND expires_at <= ?`,
+      [now],
+    );
+    return meta.changes ?? 0;
+  },
+});
+
+/* ----------------------------------------------------------- subscriptions -- */
+/**
+ * M14.5B — PROVIDER-NEUTRAL recurring billing state.
+ *
+ * The vocabulary here is deliberately generic: `provider`,
+ * `providerSubscriptionId`, `providerCustomerId`. Stripe and PayPal each
+ * speak their own vocabulary in their own adapter and map INTO this
+ * interface — the store does not learn either dialect.
+ *
+ * TERMINAL STATES ARE PER PROVIDER, because the two providers genuinely
+ * differ and inventing a shared rule would be inventing semantics:
+ *
+ *   stripe  cancelled            is terminal.
+ *   paypal  cancelled, expired   are terminal. `suspended` is NOT: PayPal
+ *                                documents an activate endpoint and states a
+ *                                subscription may be updated while ACTIVE or
+ *                                SUSPENDED, so a suspended subscription can
+ *                                legitimately come back.
+ *
+ * A genuine resubscription on either rail arrives with a NEW provider
+ * subscription id, so terminality blocks resurrection without blocking a
+ * returning member.
+ */
+const TERMINAL_BY_PROVIDER = Object.freeze({
+  stripe: Object.freeze(['cancelled']),
+  paypal: Object.freeze(['cancelled', 'expired']),
+});
+
+export const subscriptions = (db) => ({
+  byUserId: (userId) => q(db).first('SELECT * FROM subscriptions WHERE user_id = ?', [userId]),
+
+  /**
+   * Look one up by the provider's own id. `provider` is required and is
+   * matched as well, so an id that somehow collided across two rails resolves
+   * to nothing rather than to the wrong subscription.
+   */
+  byProviderSubscriptionId: (provider, providerSubscriptionId) =>
+    q(db).first(
+      'SELECT * FROM subscriptions WHERE provider = ? AND provider_subscription_id = ?',
+      [provider, providerSubscriptionId],
+    ),
+
+  /**
+   * Upsert one subscription-lifecycle webhook event, under a DETERMINISTIC
+   * ordering contract.
+   *
+   * Stripe does not guarantee webhook delivery order and may redeliver, so
+   * arrival order decides nothing here. Ordering comes from the event itself:
+   * `event.id` identifies a delivery, `event.created` (Stripe's clock, stable
+   * across redeliveries) orders them. Neither `updated_at` nor receipt time is
+   * ever consulted — both record when THIS server saw an event, not when
+   * Stripe made it.
+   *
+   * THE CONTRACT, in order. The first rule that matches wins, and every
+   * rejecting rule leaves the row completely untouched:
+   *
+   *   0. Provider disagreement                           -> 'provider_mismatch'
+   *      M14.5B. `last_event_created` is an INTEGER whose UNIT is
+   *      provider-specific: Stripe stamps epoch SECONDS, PayPal's RFC 3339
+   *      `create_time` parses to epoch MILLISECONDS. Comparing across those
+   *      units would make every PayPal event look astronomically newer than
+   *      every Stripe one. It cannot happen — a row belongs to one provider —
+   *      and this rule makes "cannot happen" structural rather than assumed.
+   *
+   *   1. A TERMINAL status stays terminal                -> 'terminal'
+   *      Which statuses those are is per provider (see TERMINAL_BY_PROVIDER).
+   *      A genuine resubscription arrives with a NEW provider subscription id,
+   *      so this blocks resurrection without blocking a returning member.
+   *
+   *   2. Same `event.id` as the last accepted one        -> 'duplicate'
+   *      An exact redelivery. Caught before the timestamp rules because a
+   *      duplicate necessarily ties on `created`.
+   *
+   *   3. `event.created` older than the last accepted    -> 'stale_event'
+   *
+   *   4. timestamp EQUAL, different event id             -> 'ambiguous'
+   *      FAIL CLOSED. Stripe can stamp two events in the same second, and
+   *      nothing on them says which came first. Stripe does not document any
+   *      ordering guarantee over event ids, so breaking the tie on id order
+   *      would be deterministic but ARBITRARY — it would let string
+   *      comparison decide whether a paying member is marked past_due.
+   *      Refusing leaves the last unambiguous state standing; the next
+   *      lifecycle event carries a later timestamp and re-establishes truth.
+   *
+   *      M14.5B: PayPal is if anything a stronger case. PayPal's own
+   *      documentation states that events may arrive out of order and that an
+   *      integration must not assume event order, and it documents NO
+   *      ordering mechanism over event ids either. So the same rule applies
+   *      unchanged, for the same reason.
+   *
+   *   4b. No usable `event.created` at all               -> 'unorderable'
+   *      Same principle taken to its conclusion. Once a baseline exists, an
+   *      event that cannot be placed in time cannot be allowed to change
+   *      state — accepting it would be deciding by arrival order, which is
+   *      the entire defect this contract exists to remove. Real Stripe events
+   *      always carry `created`; this is depth, not an expected path.
+   *
+   *   5. Billing period older than the stored one        -> 'stale'
+   *      Retained from M14.1 and still load-bearing: an event CREATED later
+   *      can still be ABOUT an earlier period (an old invoice marked
+   *      uncollectible weeks on). Such an event must not downgrade a member
+   *      who is current. Events with no period skip this — rule 1 covers them.
+   *
+   *   6. Otherwise                                       -> 'inserted'|'updated'
+   *
+   * A row with NULL ordering columns predates migration 0004 and has nothing
+   * to order against, so rules 2–4 cannot apply and the next event becomes the
+   * baseline. Only an ACCEPTED event writes the ordering marker, so a rejected
+   * event can never poison the comparison for the next one.
+   *
+   * ATOMICITY: status, current_period_end and the ordering marker are written
+   * by ONE statement. There is no window in which the marker advances while
+   * the state does not, or the reverse. The caller must treat any non-accepted
+   * outcome as "nothing happened" — memberships.payment_status included.
+   *
+   * @returns {'inserted'|'updated'|'provider_mismatch'|'terminal'|'duplicate'|'stale_event'|'ambiguous'|'unorderable'|'stale'}
+   */
+  async upsertFromWebhook({
+    provider, userId, providerSubscriptionId, providerCustomerId = null, status,
+    currentPeriodEnd = null, eventId = null, eventCreated = null,
+  }) {
+    // The lookup is by id ALONE, deliberately. `provider_subscription_id` is
+    // globally UNIQUE, so finding a row under a different provider is a real
+    // conflict that must be reported, not a miss that would then INSERT and
+    // fail on the unique constraint.
+    const existing = await q(db).first(
+      `SELECT provider, status, current_period_end, last_event_id, last_event_created
+         FROM subscriptions WHERE provider_subscription_id = ?`,
+      [providerSubscriptionId],
+    );
+
+    if (existing) {
+      // 0. Provider disagreement — never compare across unit systems.
+      if (existing.provider !== provider) return 'provider_mismatch';
+
+      // 1. Terminal state, per provider.
+      const terminal = TERMINAL_BY_PROVIDER[provider] ?? TERMINAL_BY_PROVIDER.stripe;
+      if (terminal.includes(existing.status)) return 'terminal';
+
+      // 2-4b. Event ordering, only once a baseline exists.
+      const prevCreated = existing.last_event_created;
+      const hasBaseline = Number.isFinite(prevCreated);
+      if (eventId && existing.last_event_id && eventId === existing.last_event_id) return 'duplicate';
+      if (hasBaseline) {
+        if (!Number.isFinite(eventCreated)) return 'unorderable';
+        if (eventCreated < prevCreated) return 'stale_event';
+        if (eventCreated === prevCreated && eventId !== existing.last_event_id) return 'ambiguous';
+      }
+
+      // 5. Period monotonicity.
+      if (currentPeriodEnd && existing.current_period_end && currentPeriodEnd < existing.current_period_end) {
+        return 'stale';
+      }
+    }
+
     const ts = nowIso();
     await q(db).run(
-      `INSERT INTO subscriptions (id, user_id, stripe_subscription_id, stripe_customer_id, status, current_period_end, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(stripe_subscription_id) DO UPDATE SET
+      `INSERT INTO subscriptions (id, user_id, provider, provider_subscription_id, provider_customer_id,
+                                  status, current_period_end, last_event_id, last_event_created,
+                                  created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(provider_subscription_id) DO UPDATE SET
          status = excluded.status,
          current_period_end = COALESCE(excluded.current_period_end, subscriptions.current_period_end),
+         provider_customer_id = COALESCE(excluded.provider_customer_id, subscriptions.provider_customer_id),
+         last_event_id = COALESCE(excluded.last_event_id, subscriptions.last_event_id),
+         last_event_created = COALESCE(excluded.last_event_created, subscriptions.last_event_created),
          updated_at = excluded.updated_at`,
-      [uuid(), userId, stripeSubscriptionId, stripeCustomerId, status, currentPeriodEnd, ts, ts],
+      [uuid(), userId, provider, providerSubscriptionId, providerCustomerId, status, currentPeriodEnd,
+       eventId, Number.isFinite(eventCreated) ? eventCreated : null, ts, ts],
     );
+    return existing ? 'updated' : 'inserted';
   },
 });
 
@@ -579,6 +887,7 @@ export const repos = defineRepos((db) => ({
     contactInquiries: contactInquiries(db),
     consultations: consultations(db),
     donations: donations(db),
+    donationIntents: donationIntents(db),
     subscriptions: subscriptions(db),
     ministers: ministers(db),
   }));

@@ -18,6 +18,19 @@ import { requireAuth, requireVerifiedEmail } from '@reellink/auth/middleware.js'
 import { requireTurnstile } from '@reellink/security/turnstile-middleware.js';
 import * as stripe from '@reellink/payments/stripe.js';
 import * as xrpl from '@reellink/xrpl/client.js';
+import { TIER_KEYS, ONE_TIME, resolveTier, resolvePayPalTier, givingConfig } from '../config/tiers.js';
+import { OPERATIONS, validateRequestId, keyFor } from '../payments/idempotency.js';
+import {
+  donationConfig, explorerTxUrl, isValidTxHash,
+  XRP_MIN_DROPS, XRP_MAX_DROPS, INTENT_TTL_MS,
+} from '../config/xrpl.js';
+import {
+  xrpToDrops, dropsToXrp, reserveIntent, paymentUri,
+  inspectTransaction, recordLedgerReceipt, VERIFY,
+} from '../payments/xrplDonations.js';
+import { lookupTransaction } from '@reellink/xrpl/client.js';
+import { paypalConfig, paypalAvailable, requireWebhookId } from '../config/paypal.js';
+import * as paypal from '../payments/paypal.js';
 
 /**
  * Response headers for the credential document (M11 Phase 5).
@@ -147,6 +160,21 @@ function submittedOn(iso = new Date().toISOString()) {
 
 /** Where an administrator goes to act on an incoming submission. */
 const reviewUrl = (ctx) => `${ctx.env.SITE_URL || ctx.url.origin}/admin/management`;
+
+/**
+ * M14.1 — money for a human, from webhook-derived minor units only.
+ * Never from anything a client sent.
+ */
+function formatMoney(amountCents, currency) {
+  const major = (Number(amountCents) / 100).toFixed(2);
+  return `${major} ${String(currency || 'usd').toUpperCase()}`;
+}
+
+/** Plain-language label for the Stripe event that produced a donation row. */
+function donationKind(eventType) {
+  if (eventType === 'invoice.paid') return 'monthly support payment';
+  return 'one-time gift';
+}
 
 export function mount(r) {
   /* ------------------------------------------------------------ profile -- */
@@ -601,46 +629,271 @@ export function mount(r) {
   });
 
   /**
-   * Create a Stripe PaymentIntent. Framework only — inert until
-   * STRIPE_SECRET_KEY is configured (Phase 2D).
+   * M14.1 — what the public Donate page is allowed to know about giving.
+   *
+   * The page renders from THIS, not from a mirrored copy of the catalogue, so
+   * it cannot advertise a tier the server would refuse. No Stripe Price id is
+   * exposed: the browser has no use for one and must never send one.
    */
-  r.post('/api/donations/stripe/create-intent', [requireTurnstile], async (ctx) => {
-    await enforce(ctx, 'payment', clientIp(ctx.request));
-    const body = ctx.body;
-    // $1 minimum, $100k ceiling — bounds the blast radius of a bad request.
-    const amountCents = v.int(body, 'amount_cents', { min: 100, max: 10_000_000 });
-    const currency = v.oneOf(body, 'currency', ['usd'], { required: false }) || 'usd';
+  r.get('/api/donations/config', [], async (ctx) => {
+    const cfg = givingConfig(ctx.env);
+    // M14.4 — XRP is offered only when the rail is genuinely configured, and
+    // the page is told plainly which network it is on so it can say so.
+    let xrp = { available: false };
+    try {
+      const x = donationConfig(ctx.env);
+      xrp = {
+        available: true,
+        network: x.network,
+        live: x.live,
+        address: x.address,
+        min_drops: String(XRP_MIN_DROPS),
+        max_drops: String(XRP_MAX_DROPS),
+        suggested_xrp: ['5', '25', '100', '500'],
+      };
+    } catch { /* not configured: the page simply does not offer XRP */ }
 
-    const intent = await stripe.createPaymentIntent(ctx, {
-      amountCents,
-      currency,
-      metadata: { user_id: ctx.session?.user_id ?? '' },
-      idempotencyKey: crypto.randomUUID(),
-    });
-    return json({ client_secret: intent.client_secret, id: intent.id }, { status: 201 });
+    // M14.5 — only the PUBLIC client id is ever exposed. The secret, the
+    // webhook id and every access token stay server-side.
+    let paypalCfg = { available: false };
+    if (paypalAvailable(ctx.env)) {
+      const p = paypalConfig(ctx.env);
+      paypalCfg = {
+        available: true,
+        environment: p.environment,
+        live: p.live,
+        client_id: p.clientId,
+        // M14.5B — recurring is now IMPLEMENTED, so this is no longer a
+        // hard-coded false. It is derived from the same catalogue the server
+        // charges against: true only once at least one tier has a real PayPal
+        // Plan id. The UI therefore cannot offer a tier the server refuses.
+        recurring_available: TIER_KEYS.some((key) => resolvePayPalTier(key, ctx.env) !== null),
+      };
+    }
+    return json({ ...cfg, xrp, paypal: paypalCfg });
   });
 
   /**
-   * Hosted Stripe Checkout for one-off donations and recurring membership.
-   * `mode=subscription` requires a real Stripe Price id — the ids currently in
-   * the frontend (price_supporter_tier, …) are placeholders that exist in no
-   * Stripe account, so they are rejected rather than silently failing later.
+   * M14.5 — create a PayPal order for a one-time gift.
+   *
+   * The browser asks for an amount; the SERVER decides it, validates it
+   * against the same fiat policy Stripe uses, and is the only party that ever
+   * states an amount to PayPal. Identity comes from the session and is
+   * carried in `custom_id`, never accepted from the client.
+   */
+  r.post('/api/donations/paypal/orders', [requireTurnstile], async (ctx) => {
+    await enforce(ctx, 'payment', clientIp(ctx.request));
+    const cfg = paypalConfig(ctx.env);
+    const body = ctx.body;
+    const requestId = validateRequestId(body);
+    const amountCents = v.int(body, 'amount_cents', { min: ONE_TIME.minCents, max: ONE_TIME.maxCents });
+    // Currency is not negotiable from the browser.
+    const origin = ctx.env.SITE_URL || ctx.url.origin;
+
+    const order = await paypal.createOrder(cfg, {
+      amountCents,
+      currency: 'USD',
+      userId: ctx.session?.user_id ?? '',
+      requestId: keyFor(OPERATIONS.ONE_TIME, ctx.session?.user_id ?? null, requestId),
+      returnUrl: `${origin}/donate?checkout=success`,
+      cancelUrl: `${origin}/donate?checkout=cancelled`,
+    });
+
+    // Only what the browser needs to drive the approval UX.
+    return json({ id: order.id, status: order.status }, { status: 201 });
+  });
+
+  /**
+   * M14.5 — capture an approved order, server-side.
+   *
+   * The browser supplies only the order id it was given. It does NOT decide
+   * the amount, the currency, the user, the status, or whether a donation row
+   * exists: the WEBHOOK is authoritative for persistence. This endpoint moves
+   * money and reports what PayPal said; it deliberately writes no donation.
+   */
+  r.post('/api/donations/paypal/orders/:id/capture', [requireTurnstile], async (ctx) => {
+    await enforce(ctx, 'payment', clientIp(ctx.request));
+    const cfg = paypalConfig(ctx.env);
+    const orderId = String(ctx.params.id || '');
+    if (!/^[A-Za-z0-9-]{5,64}$/.test(orderId)) throw badRequest('Invalid order');
+
+    const captured = await paypal.captureOrder(cfg, orderId);
+    const capture = captured?.purchase_units?.[0]?.payments?.captures?.[0] ?? null;
+
+    // Reported, never persisted here. `onApprove` in a browser is not proof
+    // that money arrived; the signed webhook is.
+    return json({
+      status: captured?.status ?? 'UNKNOWN',
+      capture_status: capture?.status ?? null,
+    });
+  });
+
+  /**
+   * M14.5B — start a monthly PayPal subscription.
+   *
+   * REQUIRES AUTHENTICATION, consistent with Stripe: recurring support is
+   * linked to an account so it can be managed later, and an anonymous
+   * recurring commitment has nobody to manage it.
+   *
+   * The browser sends a semantic TIER and nothing else that matters. The Plan
+   * id, the price, the currency and the subscriber identity are all resolved
+   * server-side; none of them can be supplied from outside.
+   *
+   * NOTHING IS PERSISTED HERE. PayPal returns APPROVAL_PENDING, which is not
+   * a subscription — only a verified BILLING.SUBSCRIPTION.ACTIVATED webhook
+   * creates the row.
+   */
+  r.post('/api/donations/paypal/subscriptions', [requireAuth, requireTurnstile], async (ctx) => {
+    await enforce(ctx, 'payment', clientIp(ctx.request));
+    const cfg = paypalConfig(ctx.env);
+    const requestId = validateRequestId(ctx.body);
+    // Fails closed on an unknown tier AND on a tier whose Plan id is still a
+    // placeholder. A PayPal Plan id cannot travel inbound at all.
+    const tier = resolvePayPalTier(v.str(ctx.body, 'tier', { max: 40 }), ctx.env);
+    if (!tier) throw badRequest('That monthly level is not open yet');
+
+    const origin = ctx.env.SITE_URL || ctx.url.origin;
+    const subscription = await paypal.createSubscription(cfg, {
+      planId: tier.paypalPlanId,
+      userId: ctx.session.user_id,
+      requestId: keyFor(OPERATIONS.TIER, ctx.session.user_id, requestId),
+      returnUrl: `${origin}/donate?checkout=success`,
+      cancelUrl: `${origin}/donate?checkout=cancelled`,
+    });
+
+    // Only what the approval UX needs. The status is PayPal's own word for
+    // it — deliberately not translated into anything that sounds active.
+    return json({
+      id: subscription.id,
+      status: subscription.status ?? 'APPROVAL_PENDING',
+      approval_url: paypal.approvalUrlFrom(subscription),
+    }, { status: 201 });
+  });
+
+  /**
+   * M14.4 — reserve a destination tag for an intended XRP gift.
+   *
+   * Returns only public payment-request data. The tag is how an incoming
+   * ledger payment is later attributed to this donor; identity comes from the
+   * session here and is never accepted from the client.
+   */
+  r.post('/api/donations/xrpl/intents', [requireTurnstile], async (ctx) => {
+    await enforce(ctx, 'payment', clientIp(ctx.request));
+    const db = requireDb(ctx);
+    const cfg = donationConfig(ctx.env);
+    const drops = xrpToDrops(v.str(ctx.body, 'amount_xrp', { max: 32 }));
+
+    const expiresAt = new Date(Date.now() + INTENT_TTL_MS).toISOString();
+    const { id, destinationTag } = await reserveIntent(repos(db), {
+      userId: ctx.session?.user_id ?? null,
+      expectedAmountDrops: Number(drops),
+      expiresAt,
+    });
+
+    return json({
+      intent_id: id,
+      network: cfg.network,
+      live: cfg.live,
+      address: cfg.address,
+      destination_tag: destinationTag,
+      amount_xrp: dropsToXrp(drops),
+      amount_drops: String(drops),
+      payment_uri: paymentUri({ address: cfg.address, destinationTag, amountDrops: String(drops) }),
+      expires_at: expiresAt,
+    }, { status: 201 });
+  });
+
+  /**
+   * M14.4 — the donor-submitted transaction hash fast path.
+   *
+   * This does NOT confirm anything by itself: it asks the ledger, and the
+   * ledger answers. Identical verification and persistence to the scheduled
+   * sweep, so the two converge on one donation row.
+   */
+  r.post('/api/donations/xrpl/verify', [requireTurnstile], async (ctx) => {
+    await enforce(ctx, 'payment', clientIp(ctx.request));
+    const db = requireDb(ctx);
+    const cfg = donationConfig(ctx.env);
+
+    const hash = String(v.str(ctx.body, 'tx_hash', { max: 64 })).trim().toUpperCase();
+    if (!isValidTxHash(hash)) throw badRequest('That does not look like an XRP Ledger transaction hash');
+
+    let tx;
+    try {
+      tx = await lookupTransaction(cfg.rpcUrl, hash);
+    } catch {
+      // A node problem is not a payment problem. The sweep will find it.
+      return json({ outcome: VERIFY.TEMPORARILY_UNAVAILABLE });
+    }
+
+    const verified = inspectTransaction(tx, cfg);
+    if (!verified.ok) return json({ outcome: verified.outcome });
+
+    const repo = repos(db);
+    const existing = await repo.donations.byProviderEventId(verified.hash);
+    const result = await recordLedgerReceipt(repo, cfg, verified);
+
+    if (result.recorded) {
+      await audit(ctx, ACTIONS.DONATION_RECORDED, {
+        entityType: 'donation', entityId: result.donationId, metadata: { type: 'xrpl.payment' },
+      });
+      await notifyOps(ctx, templates.adminDonationRecorded({
+        kind: 'XRP gift',
+        amount: `${dropsToXrp(verified.drops)} XRP`,
+        donor: result.attributedTo ? 'a signed-in member' : 'an anonymous donor',
+        recordedOn: submittedOn(),
+        reviewUrl: reviewUrl(ctx),
+      }), { kind: 'donation_recorded', entityType: 'donation', entityId: result.donationId });
+    }
+
+    return json({
+      outcome: existing || !result.recorded ? VERIFY.ALREADY_RECORDED : VERIFY.CONFIRMED,
+      amount_xrp: dropsToXrp(verified.drops),
+      reference_url: explorerTxUrl(cfg, verified.hash),
+    });
+  });
+
+  /**
+   * Hosted Stripe Checkout — one-off gifts and monthly support tiers.
+   *
+   * M14.1 closed two holes here:
+   *
+   *   HIGH-1  The route used to forward ANY caller-supplied `price_id` that
+   *           merely wasn't a known placeholder, so once a live key existed a
+   *           crafted request could subscribe against any Price in the Stripe
+   *           account. The wire contract is now a TIER KEY resolved against
+   *           the server's own closed catalogue; a Stripe Price id cannot be
+   *           named from outside at all.
+   *
+   *   HIGH-2  `crypto.randomUUID()` per call meant a retry created a SECOND
+   *           Session. The key is now derived from the caller's per-action
+   *           `request_id` plus server-known identity — see
+   *           ../payments/idempotency.js.
    */
   r.post('/api/donations/stripe/checkout', [requireTurnstile], async (ctx) => {
     await enforce(ctx, 'payment', clientIp(ctx.request));
     const body = ctx.body;
     const mode = v.oneOf(body, 'mode', ['payment', 'subscription'], { required: false }) || 'payment';
     const origin = ctx.env.SITE_URL || ctx.url.origin;
+    const requestId = validateRequestId(body);
 
     let items;
+    let operation;
     if (mode === 'subscription') {
-      const price = v.str(body, 'price_id', { max: 120 });
-      if (stripe.PLACEHOLDER_PRICE_IDS.includes(price)) {
-        throw badRequest('This membership tier is not configured yet. Real Stripe Price ids are required.');
+      // Closed vocabulary, not a string that resembles a Stripe id.
+      const tier = resolveTier(v.oneOf(body, 'tier', TIER_KEYS));
+      if (!tier) {
+        throw badRequest('This support tier is not available yet.');
       }
-      items = [{ price, quantity: 1 }];
+      operation = OPERATIONS.TIER;
+      items = [{ price: tier.priceId, quantity: 1 }];
     } else {
-      items = [{ amountCents: v.int(body, 'amount_cents', { min: 100, max: 10_000_000 }), name: 'Donation' }];
+      operation = OPERATIONS.ONE_TIME;
+      items = [{
+        amountCents: v.int(body, 'amount_cents', { min: ONE_TIME.minCents, max: ONE_TIME.maxCents }),
+        currency: ONE_TIME.currency,
+        name: 'Donation',
+      }];
     }
 
     // Reuse the caller's existing Stripe customer if they have one, so a
@@ -663,7 +916,7 @@ export function mount(r) {
       // The only identifier propagated to Stripe: the server-resolved session
       // user id, or '' for an anonymous donor. The client never supplies this.
       metadata: { user_id: ctx.session?.user_id ?? '' },
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: keyFor(operation, ctx.session?.user_id ?? null, requestId),
     });
     return json({ id: session.id, url: session.url }, { status: 201 });
   });
@@ -696,8 +949,35 @@ export function mount(r) {
         console.error('[stripe webhook] malformed amount, ignoring', event.id, event.type);
         result.donation = 'ignored_malformed';
       } else {
-        const id = await repo.donations.recordIfNew(donation);
-        if (id) await audit(ctx, ACTIONS.DONATION_RECORDED, { entityType: 'donation', entityId: id, metadata: { type: event.type } });
+        // M14.3 — `donationFromEvent` is the STRIPE adapter and keeps Stripe's
+        // own vocabulary; the store is provider-neutral. Mapping here, rather
+        // than renaming inside the shared package, keeps each honest: Stripe
+        // calls it an event id, the ledger will call it a transaction hash,
+        // and the column that holds both is `provider_event_id`.
+        const id = await repo.donations.recordIfNew({
+          provider: donation.provider,
+          providerEventId: donation.stripeEventId,
+          providerTxnId: donation.providerChargeId,
+          amountCents: donation.amountCents,
+          currency: donation.currency,
+          status: donation.status,
+          referenceUrl: donation.receiptUrl,
+          userId: donation.userId,
+        });
+        if (id) {
+          await audit(ctx, ACTIONS.DONATION_RECORDED, { entityType: 'donation', entityId: id, metadata: { type: event.type } });
+          // M14.1 — announce ONLY a genuinely new row, and only after it is
+          // committed and audited. safeNotify absorbs every failure mode, so
+          // a dead mail provider can never make Stripe retry a webhook that
+          // already persisted: the business result above is final either way.
+          await notifyOps(ctx, templates.adminDonationRecorded({
+            kind: donationKind(event.type),
+            amount: formatMoney(donation.amountCents, donation.currency),
+            donor: donation.userId ? 'a signed-in member' : 'an anonymous donor',
+            recordedOn: submittedOn(),
+            reviewUrl: reviewUrl(ctx),
+          }), { kind: 'donation_recorded', entityType: 'donation', entityId: id });
+        }
         result.donation = id ? 'recorded' : 'duplicate';
       }
     }
@@ -711,24 +991,51 @@ export function mount(r) {
       // metadata of their own — resolve the user from the subscription row
       // this same Stripe subscription already created.
       if (!userId) {
-        const existingSub = await repo.subscriptions.byStripeSubscriptionId(stripeSubscriptionId);
+        const existingSub = await repo.subscriptions.byProviderSubscriptionId('stripe', stripeSubscriptionId);
         userId = existingSub?.user_id ?? null;
       }
 
       if (userId) {
-        await repo.subscriptions.upsertFromWebhook({
-          userId, stripeSubscriptionId, stripeCustomerId, status,
+        // M14.1/M14.2 — the store applies the ordering contract (see
+        // upsertFromWebhook) and refuses anything that would regress real
+        // state: a resurrected `cancelled`, an exact redelivery, an event
+        // older than the last accepted one, an unresolvable timestamp tie, or
+        // a period that predates the stored one.
+        //
+        // Stripe's own event id and created time are passed through so
+        // ordering never depends on arrival order. Only these two identifiers
+        // and a timestamp are persisted — no raw body, no billing details.
+        // M14.5B — this adapter still speaks Stripe; it maps explicitly into
+        // the provider-neutral store rather than making the store learn
+        // Stripe's vocabulary.
+        const outcome = await repo.subscriptions.upsertFromWebhook({
+          provider: 'stripe',
+          userId,
+          providerSubscriptionId: stripeSubscriptionId,
+          providerCustomerId: stripeCustomerId,
+          status,
           currentPeriodEnd: subscriptionEvent.currentPeriodEnd ?? null,
+          eventId: subscriptionEvent.stripeEventId ?? null,
+          eventCreated: subscriptionEvent.eventCreated ?? null,
         });
-        // Keep the user's stripe_customer_id current for future checkout reuse.
-        const user = await repo.users.byId(userId);
-        if (user && user.stripe_customer_id !== stripeCustomerId) {
-          await repo.users.setStripeCustomerId(userId, stripeCustomerId);
+
+        // Anything other than an accepted write means NOTHING happened —
+        // membership payment_status included. That is the path by which a
+        // stale event could otherwise downgrade a member who had paid.
+        if (outcome !== 'inserted' && outcome !== 'updated') {
+          console.warn('[stripe webhook] ignoring out-of-order subscription event', event.id, event.type, outcome);
+          result.subscription = outcome;
+        } else {
+          // Keep the user's stripe_customer_id current for future checkout reuse.
+          const user = await repo.users.byId(userId);
+          if (user && user.stripe_customer_id !== stripeCustomerId) {
+            await repo.users.setStripeCustomerId(userId, stripeCustomerId);
+          }
+          // Only a 'paid' membership's payment_status is ever touched, and only
+          // from here — never by admin approval, never by a client request.
+          await repo.memberships.setPaymentStatus(userId, status);
+          result.subscription = 'synced';
         }
-        // Only a 'paid' membership's payment_status is ever touched, and only
-        // from here — never by admin approval, never by a client request.
-        await repo.memberships.setPaymentStatus(userId, status);
-        result.subscription = 'synced';
       } else {
         console.error('[stripe webhook] subscription event with no resolvable user', event.id, stripeSubscriptionId);
         result.subscription = 'unresolved_user';
@@ -737,6 +1044,162 @@ export function mount(r) {
 
     if (!donation && !subscriptionEvent) result.ignored = event.type;
     return json(result);
+  });
+
+  /**
+   * M14.5 — the PayPal webhook. AUTHORITATIVE for durable persistence.
+   *
+   * Verified by postback to PayPal over the RAW body, and FAILS CLOSED: a
+   * missing signature header, a missing webhook id, an unreachable verifier
+   * or any answer other than SUCCESS all end here with 400 and no state
+   * change whatsoever.
+   *
+   * Must never sit behind Turnstile or session auth.
+   */
+  r.post('/api/webhooks/paypal', [], async (ctx) => {
+    const db = requireDb(ctx);
+    const cfg = paypalConfig(ctx.env);
+    requireWebhookId(cfg);
+
+    const raw = await ctx.request.text();
+    const ok = await paypal.verifyWebhook(cfg, raw, ctx.request.headers);
+    if (!ok) throw badRequest('Webhook verification failed');
+
+    let event;
+    try { event = JSON.parse(raw); } catch { throw badRequest('Malformed webhook'); }
+    // Valid JSON is not yet a PayPal event. An array, a scalar or an object
+    // with no `id`/`event_type` cannot be one, and must be REJECTED rather
+    // than acknowledged as "an event we ignore" — the two are different
+    // answers and only one of them is true. An unrecognised but well-formed
+    // event type is still acknowledged below, so PayPal stops retrying it.
+    if (!event || typeof event !== 'object' || Array.isArray(event)
+        || typeof event.id !== 'string' || typeof event.event_type !== 'string') {
+      throw badRequest('Malformed webhook');
+    }
+
+    const repo = repos(db);
+
+    /* ---- M14.5B: subscription lifecycle ------------------------------- */
+    const lifecycle = paypal.subscriptionEventFromEvent(event);
+    if (lifecycle) {
+      // Identity comes from the STORED subscription whenever one exists — it
+      // was written from an authenticated session. `custom_id` is only a
+      // fallback for the very first event (ACTIVATED), where the server set
+      // it itself at creation time and no row exists yet.
+      const stored = await repo.subscriptions.byProviderSubscriptionId('paypal', lifecycle.providerSubscriptionId);
+      const userId = stored?.user_id ?? lifecycle.userIdHint;
+      if (!userId) {
+        console.error('[paypal webhook] lifecycle event with no resolvable user', event.id, event.event_type);
+        return json({ received: true, subscription: 'unresolved_user' });
+      }
+
+      const outcome = await repo.subscriptions.upsertFromWebhook({
+        provider: 'paypal',
+        userId,
+        providerSubscriptionId: lifecycle.providerSubscriptionId,
+        status: lifecycle.status,
+        eventId: lifecycle.eventId,
+        eventCreated: lifecycle.eventCreated,
+      });
+
+      // Anything other than an accepted write means NOTHING happened —
+      // membership payment_status included. Identical to the Stripe path,
+      // and it is the path by which a stale PayPal event could otherwise
+      // downgrade a member who is current.
+      if (outcome !== 'inserted' && outcome !== 'updated') {
+        console.warn('[paypal webhook] ignoring out-of-order subscription event', event.id, event.event_type, outcome);
+        return json({ received: true, subscription: outcome });
+      }
+
+      // Mapped into the EXISTING membership vocabulary; suspended/expired
+      // have no column of their own and are not invented into one.
+      const membershipStatus = paypal.membershipStatusFor(lifecycle.status);
+      if (membershipStatus) await repo.memberships.setPaymentStatus(userId, membershipStatus);
+      return json({ received: true, subscription: 'synced' });
+    }
+
+    /* ---- M14.5B: recurring payments ----------------------------------- */
+    const recurring = paypal.recurringPaymentFromEvent(event);
+    if (recurring) {
+      if (recurring.kind === 'transition') {
+        const moved = await repo.donations.transitionByProviderTxnId(recurring.targetTxnId, recurring.status, 'paypal');
+        return json({ received: true, transition: moved ? recurring.status : 'no_matching_donation' });
+      }
+
+      // The subscription's OWN stored user is authoritative. A sale arriving
+      // before its subscription row exists (PayPal documents that events may
+      // arrive out of order) is still real money the ministry received, so it
+      // is recorded UNATTRIBUTED rather than dropped — the same choice made
+      // for an untagged XRPL payment.
+      const sub = recurring.subscriptionId
+        ? await repo.subscriptions.byProviderSubscriptionId('paypal', recurring.subscriptionId)
+        : null;
+
+      const recurringId = await repo.donations.recordIfNew({
+        userId: sub?.user_id ?? null,
+        provider: 'paypal',
+        providerEventId: recurring.providerEventId,
+        providerTxnId: recurring.providerTxnId,
+        amountCents: recurring.amountCents,
+        currency: recurring.currency,
+        status: recurring.status,
+      });
+
+      if (recurringId) {
+        await audit(ctx, ACTIONS.DONATION_RECORDED, {
+          entityType: 'donation', entityId: recurringId, metadata: { type: event.event_type },
+        });
+        // Announced only for money genuinely received and genuinely new —
+        // never for a subscription merely being created, approved or
+        // activated, none of which is a payment.
+        await notifyOps(ctx, templates.adminDonationRecorded({
+          kind: 'PayPal monthly support',
+          amount: formatMoney(recurring.amountCents, recurring.currency),
+          donor: sub?.user_id ? 'a signed-in member' : 'an anonymous donor',
+          recordedOn: submittedOn(),
+          reviewUrl: reviewUrl(ctx),
+        }), { kind: 'donation_recorded', entityType: 'donation', entityId: recurringId });
+      }
+      return json({ received: true, donation: recurringId ? 'recorded' : 'duplicate' });
+    }
+
+    const mapped = paypal.donationFromEvent(event);
+    if (!mapped) return json({ received: true, ignored: event.event_type ?? 'unknown' });
+
+    // A refund or reversal is NEWS ABOUT an existing gift, not a new one.
+    // Inserting on its own event id would manufacture a phantom donation.
+    if (mapped.kind === 'transition') {
+      const moved = await repo.donations.transitionByProviderTxnId(mapped.targetTxnId, mapped.status, 'paypal');
+      return json({ received: true, transition: moved ? mapped.status : 'no_matching_donation' });
+    }
+
+    const id = await repo.donations.recordIfNew({
+      userId: mapped.userId,
+      provider: 'paypal',
+      providerEventId: mapped.providerEventId,
+      providerTxnId: mapped.providerTxnId,
+      amountCents: mapped.amountCents,
+      currency: mapped.currency,
+      status: mapped.status,
+    });
+
+    if (id) {
+      await audit(ctx, ACTIONS.DONATION_RECORDED, {
+        entityType: 'donation', entityId: id, metadata: { type: event.event_type },
+      });
+      // Only a genuinely COMPLETED gift is announced. A pending or declined
+      // capture is recorded for the ledger but is not good news to send.
+      if (mapped.status === 'completed') {
+        await notifyOps(ctx, templates.adminDonationRecorded({
+          kind: 'PayPal gift',
+          amount: formatMoney(mapped.amountCents, mapped.currency),
+          donor: mapped.userId ? 'a signed-in member' : 'an anonymous donor',
+          recordedOn: submittedOn(),
+          reviewUrl: reviewUrl(ctx),
+        }), { kind: 'donation_recorded', entityType: 'donation', entityId: id });
+      }
+    }
+    return json({ received: true, donation: id ? 'recorded' : 'duplicate' });
   });
 
   /* ------------------------------------------------------- consultations -- */

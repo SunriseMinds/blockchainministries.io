@@ -87,6 +87,52 @@ export function explorerTxUrl(ctx, txHash) {
   return `${config(ctx).explorer}/transactions/${encodeURIComponent(txHash)}`;
 }
 
+/* ------------------------------------------------------- read-only lookups -- */
+/**
+ * ADDITIVE (M14.4): two read-only ledger queries, for verifying INCOMING
+ * payments. Both go through the same `rpc()` helper above — no signing, no
+ * seed, no state change. They take an explicit `rpcUrl` because the donation
+ * rail runs on its own network configuration, deliberately separate from the
+ * EFT issuer's (see worker/config/xrpl.js).
+ */
+async function rpcAt(rpcUrl, method, params = {}) {
+  const res = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ method, params: [params] }),
+  });
+  if (!res.ok) throw new HttpError(502, 'xrpl_error', 'XRPL node error');
+  const data = await res.json();
+  if (data?.result?.error) {
+    throw new HttpError(502, 'xrpl_error', data.result.error_message || data.result.error);
+  }
+  return data.result;
+}
+
+/** One transaction by hash, from a validated ledger where available. */
+export function lookupTransaction(rpcUrl, hash) {
+  return rpcAt(rpcUrl, 'tx', { transaction: hash, binary: false });
+}
+
+/**
+ * An account's transaction history, newest first, BOUNDED.
+ *
+ * `ledger_index_min` lets the caller resume from a high-water mark instead of
+ * re-reading the whole history, and `limit` caps a single sweep so a busy
+ * account can never produce an unbounded scan.
+ */
+export function lookupAccountTransactions(rpcUrl, { account, ledgerIndexMin = -1, limit = 50, marker } = {}) {
+  return rpcAt(rpcUrl, 'account_tx', {
+    account,
+    ledger_index_min: ledgerIndexMin,
+    ledger_index_max: -1,
+    binary: false,
+    forward: false,
+    limit,
+    ...(marker ? { marker } : {}),
+  });
+}
+
 /* ---------------------------------------------------------------- signing -- */
 /**
  * NFT minting, delegated to the Worker-compatible signer in

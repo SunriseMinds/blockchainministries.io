@@ -15,18 +15,32 @@
  * touch D1 (production or preview), and nothing in packages/* is modified.
  */
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/** The applied migration chain, in order. Keep in sync with migrations/. */
-export const MIGRATIONS = [
-  '0001_initial_schema.sql',
-  '0002_login_tokens.sql',
-  '0003_ordination_credentials.sql',
-];
+/**
+ * The applied migration chain, in order, READ FROM DISK.
+ *
+ * This used to be a hand-maintained list with a "keep in sync" comment — and
+ * M14.2 proved the comment was not enough: migration 0004 was written while
+ * the list still ended at 0003, so every test ran against a schema the
+ * repository no longer had. Deriving the chain from the directory means a new
+ * migration is exercised the moment it exists, and cannot be silently
+ * untested.
+ *
+ * Numeric filename prefixes give the order; a plain lexicographic sort is
+ * correct for the zero-padded `NNNN_name.sql` convention this project uses.
+ */
+export const MIGRATIONS = readdirSync(join(REPO_ROOT, 'migrations'))
+  .filter((f) => /^\d{4}_.*\.sql$/.test(f))
+  .sort();
+
+if (MIGRATIONS.length === 0 || !MIGRATIONS[0].startsWith('0001_')) {
+  throw new Error(`Migration chain looks wrong: ${MIGRATIONS.join(', ')}`);
+}
 
 /**
  * Wrap a node:sqlite handle in D1's interface.

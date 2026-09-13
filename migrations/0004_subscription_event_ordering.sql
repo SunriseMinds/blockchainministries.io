@@ -1,0 +1,58 @@
+-- Migration 0004: durable Stripe subscription event ordering (M14.2).
+--
+-- 0001_initial_schema.sql, 0002_login_tokens.sql and 0003_ordination_credentials.sql
+-- remain frozen and untouched; this is purely additive. Two nullable columns
+-- are added to the EXISTING `subscriptions` table. No table is rebuilt, no
+-- CHECK constraint is altered, no index is added, and nothing outside
+-- subscription event ordering is touched.
+--
+-- THE DEFECT THIS CLOSES
+-- M14.1 made subscription webhooks safe against two regressions using only
+-- what 0001 already stored: `cancelled` became terminal, and an event whose
+-- billing period predated the stored one could not change state. That left
+-- one gap it deliberately refused to migrate for silently:
+--
+--   Two DIFFERENT events for the SAME billing period can arrive out of order.
+--   invoice.paid and invoice.payment_failed for one period are
+--   indistinguishable by period alone, so whichever HTTP request happened to
+--   land last won — and a redelivered failure could downgrade a member who
+--   had already paid.
+--
+-- Stripe does not guarantee delivery order, and explicitly warns against
+-- relying on it. Arrival time is therefore not an ordering authority, and
+-- neither is `updated_at` (which records when THIS server processed an event,
+-- not when Stripe created it). The only durable ordering signal is carried on
+-- the event itself.
+--
+-- WHY EXACTLY THESE TWO COLUMNS
+--   last_event_id       Stripe's `event.id` — unique per webhook DELIVERY.
+--                       Identifies an exact duplicate redelivery, which must
+--                       be a no-op even when its timestamp ties.
+--   last_event_created  Stripe's `event.created`, unix seconds. The ordering
+--                       key. Stored as INTEGER so comparison is numeric and
+--                       needs no parsing; it is Stripe's own clock, not ours,
+--                       and is stable across redeliveries of the same event.
+--
+-- Both are NULLABLE on purpose. Existing preview rows predate this migration
+-- and have no recorded event; a NULL marker means "nothing to order against",
+-- so the next event is accepted and becomes the baseline. That is correct —
+-- inventing an ordering for history we never captured would be worse than
+-- admitting we do not have one.
+--
+-- DELIBERATELY NOT DONE HERE
+--   * No webhook_events ledger table. Ordering is per-subscription state, not
+--     a global log; a ledger would be a second source of truth to keep
+--     consistent for no additional correctness. `donations.stripe_event_id
+--     UNIQUE` (0001) already provides donation-side idempotency and is
+--     untouched.
+--   * No change to `donations.provider` — PayPal and crypto remain out of
+--     scope and unrepresentable, exactly as ratified.
+--   * No change to `memberships`, `ordinations`, or any other table.
+--   * No raw webhook body, no card data, no billing details, no customer
+--     email, no signature material is persisted by this or any related code.
+--     Two identifiers and a timestamp are the whole of it.
+--
+-- Forward-only and idempotent at the tooling level: wrangler records applied
+-- migrations in d1_migrations, so this file runs exactly once per database.
+ALTER TABLE subscriptions ADD COLUMN last_event_id TEXT;
+ALTER TABLE subscriptions ADD COLUMN last_event_created INTEGER;

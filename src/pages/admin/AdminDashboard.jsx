@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { api } from '@/lib/cloudflareApi';
 import { CLOUDFLARE_ADMIN_PATH, mapAdminRow } from './adminOverview';
-import { QUEUES } from './adminQueues';
+import { QUEUES, DONATION_COLUMNS } from './adminQueues';
 import { createQueueStore, disclosedDetails, LOADING, READY, ERROR } from './adminQueueState';
 import { useToast } from '@/components/ui/use-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -135,14 +135,11 @@ const AdminDashboard = () => {
     { key: 'created_at', label: 'Joined At', render: (val) => new Date(val).toLocaleDateString() },
   ];
 
-  const donationColumns = [
-    { key: 'user_id', label: 'User ID' },
-    { key: 'amount_cents', label: 'Amount (Cents)', render: (val) => val },
-    { key: 'currency', label: 'Currency' },
-    { key: 'provider', label: 'Provider' },
-    { key: 'status', label: 'Status' },
-    { key: 'created_at', label: 'Timestamp', render: (val) => new Date(val).toLocaleString() },
-  ];
+  // M14.3 — provider-neutral and privacy-projected (see adminQueues.js).
+  // `user_id` and the internal provider transaction id are gone: the donor
+  // shows as Member or Anonymous, and one Amount column reads correctly
+  // whether the rail counts in cents or in XRP drops.
+  const donationColumns = DONATION_COLUMNS;
 
   const scrollColumns = [
     { key: 'title', label: 'Title' },

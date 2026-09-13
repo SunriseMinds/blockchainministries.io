@@ -32,13 +32,31 @@ test('mapAdminRow: scrolls row gets a `pdf_path` alias of r2_key', () => {
   assert.equal(mapped.pdf_path, 'scrolls/s1.pdf');
 });
 
-test('mapAdminRow: ordinations/profiles/donations rows pass through unchanged (already correctly named)', () => {
+test('M14.3: mapAdminRow projects donations through the privacy boundary', () => {
+  // Donations no longer pass through raw. They are provider-neutral and go
+  // through the M13 allow-list, which is what removes user_id and the
+  // internal provider transaction id before anything reaches a screen.
+  const donationRow = {
+    id: 'd1', user_id: 'u-private', provider: 'stripe',
+    provider_event_id: 'evt_secret', provider_txn_id: 'pi_secret',
+    amount_cents: 500, amount_drops: null, currency: 'usd', status: 'succeeded',
+    reference_url: 'https://stripe/r/1', created_at: '2026-03-01T00:00:00.000Z',
+  };
+  const projected = mapAdminRow('donations', donationRow);
+  assert.equal(projected.amount, '5.00 USD');
+  assert.equal(projected.provider, 'Card');
+  assert.equal(projected.donor, 'Member');
+  for (const forbidden of ['user_id', 'provider_event_id', 'provider_txn_id']) {
+    assert.ok(!(forbidden in projected), `donations row still carries ${forbidden}`);
+  }
+  assert.ok(!JSON.stringify(projected).includes('u-private'));
+});
+
+test('mapAdminRow: ordinations/profiles rows pass through unchanged (already correctly named)', () => {
   const ordinationRow = { id: 'o1', status: 'pending' };
   assert.deepEqual(mapAdminRow('ordinations', ordinationRow), ordinationRow);
 
   const profileRow = { id: 'u1', role: 'member', display_name: 'Fixture User' };
   assert.deepEqual(mapAdminRow('profiles', profileRow), profileRow);
 
-  const donationRow = { id: 'd1', amount_cents: 500 };
-  assert.deepEqual(mapAdminRow('donations', donationRow), donationRow);
 });

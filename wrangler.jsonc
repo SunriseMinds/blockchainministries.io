@@ -127,7 +127,31 @@
         // preview` and resolved from the account — not guessed, and not a
         // per-version preview URL (which `wrangler versions upload` mints
         // afresh on every upload and which therefore cannot be a SITE_URL).
-        "SITE_URL": "https://blockchainministries-io-preview.sonriseminds.workers.dev"
+        "SITE_URL": "https://blockchainministries-io-preview.sonriseminds.workers.dev",
+        // M14.4 — XRP donation rail, TESTNET ONLY.
+        //
+        // This is a throwaway XRPL *testnet* account. Testnet XRP has no
+        // monetary value and this address is NOT the ministry's future
+        // production donation address, which the owner has yet to choose.
+        //
+        // Only the ADDRESS appears here. Receiving XRP requires no key, and
+        // worker/config/xrpl.js REFUSES to run the rail if XRPL_SEED is set —
+        // so the Worker cannot acquire custody even by accident. It also
+        // refuses mainnet unless XRPL_ALLOW_MAINNET is explicitly 'true',
+        // which is deliberately absent everywhere.
+        "XRPL_NETWORK": "testnet",
+        "XRPL_DONATION_ADDRESS": "rssjCkKZiaCqqqBGZiVpWAXmddRgs8291E",
+        // M14.5 — PayPal. Only the ENVIRONMENT is configuration; it pins the
+        // rail to sandbox, and worker/config/paypal.js refuses `live` unless
+        // PAYPAL_ALLOW_LIVE is explicitly 'true', which is absent everywhere.
+        //
+        // PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET and PAYPAL_WEBHOOK_ID are
+        // deliberately NOT here: they are owner-set SECRETS
+        // (`wrangler secret put --env preview`), which a deploy preserves,
+        // unlike vars, which a deploy replaces wholesale from this file. Until
+        // the owner sets them the rail is simply off and the Donate page says
+        // so — it never fakes readiness.
+        "PAYPAL_ENVIRONMENT": "sandbox"
         // USE_R2 and USE_TURNSTILE are deliberately absent -> false (see
         // packages/core/src/flags.js `on()`). Do not add USE_R2 here until an
         // isolated preview R2 bucket exists.
@@ -147,7 +171,16 @@
         }
       ],
       // Explicitly empty: preview must never bind the production R2 buckets.
-      "r2_buckets": []
+      "r2_buckets": [],
+      // M14.4 — XRPL reconciliation sweep. The XRP Ledger has no webhooks, so
+      // a donor who pays and closes the tab is credited by this instead. Five
+      // minutes is a deliberate compromise: fast enough that a gift is
+      // acknowledged while the donor still remembers giving it, slow enough
+      // that a public RPC node is never hammered. Each run reads ONE capped
+      // page and signs nothing.
+      "triggers": {
+        "crons": ["*/5 * * * *"]
+      }
     }
   }
 }

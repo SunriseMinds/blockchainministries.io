@@ -185,6 +185,74 @@ function projectMetadata(action, raw, allowMap) {
 
 /* -------------------------------------------------------- row projections -- */
 
+/* ------------------------------------------------------------- donations -- */
+
+/** The three ratified rails, and how a donor should see them named. */
+const PROVIDER_LABELS = Object.freeze({
+  stripe: 'Card',
+  paypal: 'PayPal',
+  xrpl: 'XRP',
+});
+
+export const formatProvider = (value) => PROVIDER_LABELS[value] || text(value);
+
+/**
+ * M14.3 — money, formatted from whichever unit the rail actually uses.
+ *
+ * Fiat rows carry `amount_cents`; XRPL rows carry `amount_drops` (1 XRP =
+ * 1,000,000 drops). They are never interchangeable, and a row carrying the
+ * wrong one for its provider is rejected by the database, so this only has to
+ * choose — it never has to guess.
+ */
+export function formatAmount(row) {
+  const cents = row?.amount_cents;
+  const drops = row?.amount_drops;
+  if (Number.isFinite(drops) && drops !== null) {
+    // Trim trailing zeros so 5 XRP reads as "5 XRP", not "5.000000 XRP".
+    const xrp = (drops / 1_000_000).toFixed(6).replace(/\.?0+$/, '');
+    return `${xrp} XRP`;
+  }
+  if (Number.isFinite(cents) && cents !== null) {
+    return `${(cents / 100).toFixed(2)} ${String(row?.currency || 'usd').toUpperCase()}`;
+  }
+  return EMPTY;
+}
+
+/**
+ * Admin donation row.
+ *
+ * Deliberately dropped: `user_id` (the donor is shown only as attributed or
+ * anonymous), `provider_txn_id` (an internal capture/charge id with no
+ * operational value on a shared screen), and every raw provider payload —
+ * there is none stored, and none may be rendered.
+ *
+ * `reference_url` is kept because for XRPL it is a public explorer link the
+ * ministry genuinely needs, and for Stripe it is the donor's own receipt. It
+ * is never a private dashboard URL.
+ */
+export function projectDonation(row) {
+  return {
+    id: text(row?.id),
+    received: formatWhen(row?.created_at),
+    provider: formatProvider(row?.provider),
+    amount: formatAmount(row),
+    currency: String(row?.currency || '').toUpperCase() || EMPTY,
+    status: formatStatus(row?.status),
+    donor: row?.user_id ? 'Member' : 'Anonymous',
+    reference: text(row?.reference_url),
+  };
+}
+
+/** The columns the admin Donations tab may render, in order. */
+export const DONATION_COLUMNS = Object.freeze([
+  { key: 'received', label: 'Received' },
+  { key: 'provider', label: 'Provider' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'status', label: 'Status' },
+  { key: 'donor', label: 'Donor' },
+  { key: 'reference', label: 'Reference', wide: true },
+]);
+
 /** Contact inquiry. `ip` is deliberately dropped. */
 export function projectInquiry(row) {
   return {

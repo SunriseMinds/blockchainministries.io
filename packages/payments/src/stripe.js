@@ -233,6 +233,15 @@ export function donationFromEvent(event) {
 export function subscriptionEventFromEvent(event) {
   const obj = event?.data?.object;
   if (!obj) return null;
+  /**
+   * ADDITIVE (M14.2): Stripe's own creation time for this event, unix
+   * seconds. Webhook delivery order is not guaranteed and redeliveries are
+   * routine, so this — not arrival order, not server receipt time — is the
+   * durable key that orders two events for the same subscription. Paired with
+   * `stripeEventId` it also identifies an exact redelivery.
+   */
+  const eventCreated = Number.isFinite(event?.created) ? event.created : null;
+  const order = { eventCreated };
   switch (event.type) {
     case 'checkout.session.completed':
       if (obj.mode !== 'subscription' || !obj.subscription) return null;
@@ -242,6 +251,7 @@ export function subscriptionEventFromEvent(event) {
         stripeCustomerId: obj.customer,
         userId: userIdOf(obj.metadata?.user_id),
         status: 'active',
+        ...order,
       };
     case 'invoice.paid':
       if (!obj.subscription) return null;
@@ -251,6 +261,7 @@ export function subscriptionEventFromEvent(event) {
         stripeCustomerId: obj.customer,
         userId: userIdOf(obj.subscription_details?.metadata?.user_id ?? obj.metadata?.user_id),
         status: 'active',
+        ...order,
         currentPeriodEnd: obj.lines?.data?.[0]?.period?.end
           ? new Date(obj.lines.data[0].period.end * 1000).toISOString()
           : null,
@@ -265,6 +276,14 @@ export function subscriptionEventFromEvent(event) {
         // looking up the already-stored subscription row for this subscription id.
         userId: null,
         status: 'past_due',
+        ...order,
+        // ADDITIVE (M14.1): the billing period this failure belongs to. Stripe
+        // may redeliver or reorder events, and without a period the store
+        // cannot tell a fresh failure from a replay of an old one arriving
+        // after the member already paid. Read the same way invoice.paid does.
+        currentPeriodEnd: obj.lines?.data?.[0]?.period?.end
+          ? new Date(obj.lines.data[0].period.end * 1000).toISOString()
+          : null,
       };
     case 'customer.subscription.deleted':
       return {
@@ -273,6 +292,7 @@ export function subscriptionEventFromEvent(event) {
         stripeCustomerId: obj.customer,
         userId: null,
         status: 'cancelled',
+        ...order,
       };
     default:
       return null;

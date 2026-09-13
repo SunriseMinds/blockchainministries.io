@@ -65,6 +65,28 @@ ${reviewUrl}`,
   }),
 
   /**
+   * M14.1 — a gift was recorded. Operational awareness, not a receipt: the
+   * donor's own record comes from the provider itself (a Stripe or PayPal
+   * receipt, or the public XRP Ledger).
+   *
+   * Used by all three rails. Carries NO card data, no provider object id, no
+   * signature material, no donor name or email — `donor` is only whether the
+   * gift was attributed to a signed-in member or given anonymously. The
+   * amount is the one the WEBHOOK or the LEDGER reported, never a client's.
+   */
+  adminDonationRecorded: ({ kind, amount, donor, recordedOn, reviewUrl }) => ({
+    subject: `Gift recorded: ${amount} — Blockchain Ministries`,
+    text: `A ${kind} was recorded.
+
+Amount: ${amount}
+From: ${donor}
+Recorded: ${recordedOn}
+
+Full details are in the admin dashboard:
+${reviewUrl}`,
+  }),
+
+  /**
    * M11 Phase 7 — approval and issuance are the same act (Q9), so the
    * ordination approval email now tells the member their credential exists
    * and how to reach it.

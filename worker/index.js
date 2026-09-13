@@ -18,6 +18,47 @@ import { getFlags } from '@reellink/core/flags.js';
 import { handleApi } from './routes/index.js';
 
 export default {
+  /**
+   * M14.4 — scheduled XRPL reconciliation.
+   *
+   * The XRP Ledger has no webhooks, so a donor who pays and closes the tab
+   * would otherwise never be credited. This sweep reads the ministry
+   * donation address's own validated history and records what the donor-
+   * submitted fast path missed.
+   *
+   * Strictly bounded and read-only: one capped page of `account_tx` per run,
+   * resuming from the highest ledger already recorded. It signs nothing, and
+   * it never runs on the request path — `fetch` traffic is untouched.
+   *
+   * Fails quietly by design. If XRP giving is not configured (the normal
+   * state until the owner supplies a donation address) there is nothing to
+   * do, and a cron tick must not become noise.
+   */
+  async scheduled(event, env, executionCtx) {
+    const run = async () => {
+      let cfg;
+      try {
+        const { donationConfig } = await import('./config/xrpl.js');
+        cfg = donationConfig(env);
+      } catch {
+        return; // rail not configured — nothing to reconcile
+      }
+      if (!env.DB) return;
+      try {
+        const { reconcile } = await import('./payments/xrplReconcile.js');
+        const summary = await reconcile({ env }, cfg);
+        // A SUMMARY only. No transaction payloads, no addresses, no amounts
+        // beyond counts — the donation rows themselves are the record.
+        console.log('[xrpl reconcile]', JSON.stringify({ cron: event?.cron, ...summary }));
+      } catch (err) {
+        console.error('[xrpl reconcile] sweep failed', err?.message || 'unknown');
+      }
+    };
+    // waitUntil so a slow ledger node cannot hold the scheduled invocation open.
+    if (executionCtx?.waitUntil) executionCtx.waitUntil(run());
+    else await run();
+  },
+
   async fetch(request, env, executionCtx) {
     const url = new URL(request.url);
 
