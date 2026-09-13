@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Award, FileText, BadgeCheck, Gift, Shield, Clock, XCircle } from 'lucide-react';
 import { shouldShowApplyCta } from './membershipCta';
 import { credentialView } from './credentialCard';
+import { formatAmount, formatProvider } from '@/pages/admin/adminQueues';
 
 const DashboardHome = () => {
   const { user } = useAuth();
@@ -281,11 +282,24 @@ const DashboardHome = () => {
                 icon={<Gift />}
                 data={donations}
                 emptyText="No donations have been recorded in the archives."
+                // M14.3 — provider-neutral. An XRP gift is denominated in
+                // drops, not cents, so the amount is formatted from whichever
+                // unit its rail actually uses rather than assuming fiat.
                 renderItem={d => (
                   <>
-                    <p className="font-bold text-yellow-200">${(d.amount_cents / 100).toFixed(2)} {d.currency.toUpperCase()}</p>
+                    <p className="font-bold text-yellow-200">{formatAmount(d)}</p>
                     <p className="text-sm text-blue-200">Offered on: {new Date(d.created_at).toLocaleDateString()}</p>
-                    <p className="text-xs text-blue-300 capitalize mt-1">{d.provider}</p>
+                    <p className="text-xs text-blue-300 mt-1">
+                      {formatProvider(d.provider)}
+                      {d.reference_url && (
+                        <>
+                          {' · '}
+                          <a href={d.reference_url} target="_blank" rel="noopener noreferrer" className="text-yellow-300 underline underline-offset-2">
+                            Receipt
+                          </a>
+                        </>
+                      )}
+                    </p>
                   </>
                 )}
               />
