@@ -15,7 +15,6 @@
   "dependencies": {
     "@emotion/is-prop-valid": "^1.2.1",
     "@noble/hashes": "^2.2.0",
-    "@paypal/react-paypal-js": "^8.3.0",
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-avatar": "^1.0.3",
     "@radix-ui/react-checkbox": "^1.0.4",
@@ -38,8 +37,6 @@
     "@reellink/security": "*",
     "@reellink/storage": "*",
     "@reellink/xrpl": "*",
-    "@stripe/react-stripe-js": "^2.7.1",
-    "@stripe/stripe-js": "^3.4.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "firebase": "^10.7.1",

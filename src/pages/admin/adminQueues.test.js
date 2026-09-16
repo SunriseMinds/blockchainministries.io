@@ -14,6 +14,7 @@ import {
   QUEUES, projectRows, projectInquiry, projectScrollRequest, projectConsultation,
   projectActivity, projectActivityDetails, safeMetadata,
   formatWhen, formatDate, formatStatus, formatAction, text, EMPTY,
+  projectDonation, formatAmount, formatProvider, DONATION_COLUMNS,
 } from './adminQueues.js';
 
 const ADMIN_ROUTES = readFileSync(new URL('../../../worker/routes/admin.js', import.meta.url), 'utf8');
@@ -317,5 +318,87 @@ test('the module is pure — no React, fetch, DOM, storage or env', () => {
   for (const forbidden of ['react', 'fetch(', 'document.', 'window.', 'localStorage',
                            'sessionStorage', 'import.meta.env', 'process.env', 'useState']) {
     assert.ok(!code.includes(forbidden), `impurity: ${forbidden}`);
+  }
+});
+
+/* ======================================== M14.3 — provider-neutral donations -- */
+
+const STRIPE_ROW = {
+  id: 'd-1', user_id: 'u-alice', provider: 'stripe',
+  provider_event_id: 'evt_secret_1', provider_txn_id: 'pi_secret_1',
+  amount_cents: 5000, amount_drops: null, currency: 'usd', status: 'succeeded',
+  reference_url: 'https://stripe/receipt/1',
+  xrpl_destination_tag: null, xrpl_ledger_index: null,
+  created_at: '2026-03-01T10:00:00.000Z',
+};
+
+const XRPL_ROW = {
+  id: 'd-2', user_id: null, provider: 'xrpl',
+  provider_event_id: 'A1B2C3', provider_txn_id: 'A1B2C3',
+  amount_cents: null, amount_drops: 25_000_000, currency: 'XRP', status: 'confirmed',
+  reference_url: 'https://livenet.xrpl.org/transactions/A1B2C3',
+  xrpl_destination_tag: 4242, xrpl_ledger_index: 90_000_001,
+  created_at: '2026-03-02T10:00:00.000Z',
+};
+
+test('16. the admin donation projection is provider-neutral and allow-listed', () => {
+  const s = projectDonation(STRIPE_ROW);
+  assert.equal(s.provider, 'Card');
+  assert.equal(s.amount, '50.00 USD');
+  assert.equal(s.status, 'Succeeded');
+  assert.equal(s.donor, 'Member');
+  assert.equal(s.reference, 'https://stripe/receipt/1');
+
+  const x = projectDonation(XRPL_ROW);
+  assert.equal(x.provider, 'XRP');
+  assert.equal(x.amount, '25 XRP', 'drops must render as XRP, never as cents');
+  assert.equal(x.donor, 'Anonymous');
+  assert.equal(x.currency, 'XRP');
+
+  // Both rails produce the SAME shape, so one table renders either.
+  assert.deepEqual(Object.keys(s).sort(), Object.keys(x).sort());
+  for (const col of DONATION_COLUMNS) {
+    assert.ok(col.key in s, `column ${col.key} must exist on a projected row`);
+  }
+});
+
+test('17. no internal donation identifier can reach the admin screen', () => {
+  for (const row of [STRIPE_ROW, XRPL_ROW]) {
+    const projected = projectDonation(row);
+    const raw = JSON.stringify(projected);
+    for (const forbidden of ['user_id', 'provider_event_id', 'provider_txn_id',
+      'xrpl_destination_tag', 'xrpl_ledger_index', 'evt_secret_1', 'pi_secret_1', 'u-alice']) {
+      assert.ok(!(forbidden in projected), `projected row carries ${forbidden}`);
+      assert.ok(!raw.includes(forbidden), `projected value leaks ${forbidden}`);
+    }
+  }
+  // The donor is described, never identified.
+  assert.equal(projectDonation({ ...STRIPE_ROW, user_id: 'u-someone' }).donor, 'Member');
+  // And the projection builds a new object rather than spreading the row.
+  const SRC = readFileSync(new URL('./adminQueues.js', import.meta.url), 'utf8');
+  assert.ok(!/\.\.\.row/.test(SRC), 'a raw row must never be spread into a view object');
+});
+
+test('15. member-facing amount formatting is provider-neutral', () => {
+  // The member dashboard renders through these same two helpers.
+  assert.equal(formatAmount({ amount_cents: 2500, currency: 'usd' }), '25.00 USD');
+  assert.equal(formatAmount({ amount_drops: 1_000_000 }), '1 XRP');
+  assert.equal(formatAmount({ amount_drops: 1_500_000 }), '1.5 XRP');
+  assert.equal(formatAmount({ amount_drops: 1 }), '0.000001 XRP', 'one drop must not round to zero');
+  assert.equal(formatAmount({ amount_drops: 0 }), '0 XRP');
+  assert.equal(formatAmount({}), EMPTY, 'an unusable row degrades, it does not throw');
+  assert.equal(formatAmount(null), EMPTY);
+  assert.equal(formatProvider('stripe'), 'Card');
+  assert.equal(formatProvider('paypal'), 'PayPal');
+  assert.equal(formatProvider('xrpl'), 'XRP');
+  assert.equal(formatProvider('unknown'), 'unknown', 'an unknown rail is shown as-is, never invented');
+});
+
+test('M14.3: a malformed donation row cannot break the admin table', () => {
+  for (const junk of [null, undefined, {}, { provider: 'xrpl' }, { amount_cents: 'lots' }, []]) {
+    const p = projectDonation(junk);
+    assert.equal(typeof p.received, 'string');
+    assert.equal(typeof p.amount, 'string');
+    assert.equal(typeof p.donor, 'string');
   }
 });

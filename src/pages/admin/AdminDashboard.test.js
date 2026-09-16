@@ -672,7 +672,7 @@ test('A2. the details column header and refresh control are labelled for screen 
 /* ========================================================== CONTRACT === */
 
 test('C1. the component imports the queue contract and adds no projection of its own', () => {
-  assert.match(CODE, /import \{ QUEUES \} from '\.\/adminQueues'/);
+  assert.match(CODE, /import \{ QUEUES, DONATION_COLUMNS \} from '\.\/adminQueues'/);
   assert.match(CODE, /import \{ createQueueStore, disclosedDetails, LOADING, READY, ERROR \} from '\.\/adminQueueState'/);
   // Columns, paths, empty/error copy and projections all come from the contract.
   assert.match(M13_CODE, /queue\.columns\.map/);
