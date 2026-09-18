@@ -27,6 +27,22 @@ const StripeOneTime = ({ config }) => {
   const minCents = config?.one_time?.min_cents ?? 100;
   const maxCents = config?.one_time?.max_cents ?? 10000000;
 
+  /**
+   * Post-M14 — PROVIDER readiness, not catalogue readiness.
+   *
+   * `config.one_time.available` only says the ministry has a one-off giving
+   * level to offer; it is true even with no Stripe account, because one-off
+   * giving needs no pre-created Price. Reading it as "Card works" is what put
+   * an enabled Give button in front of an unconfigured Stripe in production.
+   *
+   * The server derives `config.stripe.available` from the configuration it
+   * actually needs, so that is the only thing consulted here. Absent (an old
+   * cached config response, say) is treated as unavailable: failing closed is
+   * the honest default for money.
+   */
+  const stripeReady = config?.stripe?.available === true;
+  const stripeLive = config?.stripe?.live === true;
+
   const [amount, setAmount] = useState(() => (suggested[2] ?? 10000) / 100);
   const [busy, setBusy] = useState(false);
 
@@ -34,6 +50,10 @@ const StripeOneTime = ({ config }) => {
   const valid = Number.isFinite(amountCents) && amountCents >= minCents && amountCents <= maxCents;
 
   const give = async () => {
+    // Belt and braces: the button is not actionable when the rail is off, so
+    // this cannot normally be reached. It exists so no future refactor of the
+    // markup can turn an unconfigured rail into a live request.
+    if (!stripeReady) return;
     if (!valid) {
       toast({
         title: 'Please check the amount',
@@ -74,6 +94,15 @@ const StripeOneTime = ({ config }) => {
         <p className="text-blue-200">A single offering of any size, given once.</p>
       </div>
 
+      {/* Stripe's counterpart of the XRPL testnet banner: if giving is running
+          against test keys, the page says so rather than taking play money
+          while looking real. */}
+      {stripeReady && !stripeLive && (
+        <div role="status" className="rounded-lg border border-amber-400/50 bg-amber-900/25 p-4 text-amber-100">
+          <strong>Stripe TEST mode</strong> — no real payment is taken.
+        </div>
+      )}
+
       <div className="space-y-4">
         <Label htmlFor="donation-amount" className="text-yellow-300 sacred-font">Amount (USD)</Label>
         <div className="grid grid-cols-3 gap-3">
@@ -109,21 +138,36 @@ const StripeOneTime = ({ config }) => {
 
       <Button
         type="button"
-        onClick={give}
-        disabled={busy}
-        className="min-h-12 w-full bg-gradient-to-r from-yellow-400 to-amber-500 py-6 text-lg font-bold text-blue-950 hover:from-yellow-500 hover:to-amber-600 disabled:opacity-60"
+        onClick={stripeReady ? give : undefined}
+        disabled={busy || !stripeReady}
+        aria-disabled={busy || !stripeReady}
+        className={
+          stripeReady
+            ? 'min-h-12 w-full bg-gradient-to-r from-yellow-400 to-amber-500 py-6 text-lg font-bold text-blue-950 hover:from-yellow-500 hover:to-amber-600 disabled:opacity-60'
+            : 'min-h-12 w-full cursor-not-allowed border border-yellow-400/20 bg-blue-900/40 py-6 text-base font-semibold text-blue-200 hover:bg-blue-900/40'
+        }
       >
-        {busy ? (
+        {!stripeReady ? 'Card giving not open yet' : busy ? (
           <><Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" /> Opening secure checkout…</>
         ) : (
           <>Give {valid ? `$${Number(amount).toLocaleString()}` : ''} <Heart className="ml-2 h-5 w-5" aria-hidden="true" /></>
         )}
       </Button>
 
-      <p className="text-center text-sm text-blue-200">
-        Payment is completed on Stripe&apos;s secure page. Blockchain Ministries never sees your card details.
-        Gifts are voluntary and, as stated in our Terms, are not given in exchange for goods or services.
-      </p>
+      {/* Honest copy when the rail is off — the Card tab stays a first-class
+          peer rather than disappearing, and nothing here implies a working
+          checkout. No request is made merely by rendering this. */}
+      {!stripeReady ? (
+        <p className="text-center text-sm text-blue-200">
+          Card giving is being prepared and is not yet open. Please use one of the other options, or{' '}
+          <a href="/contact" className="text-yellow-300 underline underline-offset-4">contact the ministry</a>.
+        </p>
+      ) : (
+        <p className="text-center text-sm text-blue-200">
+          Payment is completed on Stripe&apos;s secure page. Blockchain Ministries never sees your card details.
+          Gifts are voluntary and, as stated in our Terms, are not given in exchange for goods or services.
+        </p>
+      )}
     </div>
   );
 };

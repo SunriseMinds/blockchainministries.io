@@ -106,8 +106,13 @@ test('M14.1: availability comes from the server, not a mirrored price list', () 
 });
 
 test('tier actions stay disabled and truthful while giving is not configured', () => {
-  assert.match(TIERS, /disabled=\{!tier\.available\}/);
-  assert.match(TIERS, /aria-disabled=\{!tier\.available\}/);
+  // Post-M14: the gate STRENGTHENED from `tier.available` (a real Stripe
+  // Price exists) to `canCheckout(tier)` (a real Price AND a configured
+  // Stripe account). A Price id alone could otherwise enable a button the
+  // server refuses. Same guarantee, strictly harder to satisfy.
+  assert.match(TIERS, /disabled=\{!canCheckout\(tier\)\}/);
+  assert.match(TIERS, /aria-disabled=\{!canCheckout\(tier\)\}/);
+  assert.match(TIERS, /stripeReady && tier\.available/, 'both conditions must be required');
   assert.ok(TIERS.includes("'Coming Soon'"));
   assert.ok(TIERS.includes('not yet open for enrolment'));
   assert.ok(TIERS.includes('contact the ministry'));
