@@ -99,7 +99,7 @@ const Terms = () => {
 
           <Section title="7. Third-Party Services">
             <p>
-              The Site integrates third-party services (including Firebase, Stripe, PayPal, Coinbase Commerce, and
+              The Site integrates third-party services (including Stripe, PayPal, Coinbase Commerce, and
               Xaman/XRPL). Your use of those services is subject to their respective terms, and we are not responsible for
               their acts or omissions.
             </p>

@@ -40,23 +40,30 @@ dashboard changes were made or needed.
       feature change outside this prep pass's checklist items — flagged as the
       concrete next task, not done here.
 
+### DECISION (owner, 2026-09-25) — ministers directory starts empty in D1
+The `ministers` D1 table starts **EMPTY**. There is **no Firestore ministers
+export/import** — none will be built. No `specialties`, `ordination-date`, or
+`photo` fields or photo routes will be added until real profile data exists
+and a concrete requirement is written. `Ministers.jsx`/`MinisterProfile.jsx`
+already read `/api/ministers` (D1-backed); entries are added going forward by
+admins directly in D1. Items 1 and 2 below are superseded by this decision and
+marked not applicable.
+
 ### Remaining production steps (none performed here; each needs the listed approval)
-1. **Repoint `Ministers.jsx`/`MinisterProfile.jsx` at `/api/ministers`, drop the
-   `firebase` npm dependency and `src/lib/firebase.js`.** Preview/local code change,
-   no special approval beyond normal PR review — but out of this job's scope; do
-   as its own PR.
-2. **Populate the `ministers` D1 table from live Firestore data** (owner must
-   export via Firebase Admin SDK or console first — no read access to Firestore
-   from this environment). Needs owner-provided export; then a straightforward
-   `INSERT` against preview, validated, then production. Production write =
-   **prod_migration** approval.
+1. ~~Repoint `Ministers.jsx`/`MinisterProfile.jsx` at `/api/ministers`~~ —
+   **N/A, already done.** Both pages read `/api/ministers` (D1-backed); no
+   `src/lib/firebase.js` or `firebase` npm dependency remain in the repo.
+2. ~~Populate the `ministers` D1 table from live Firestore data~~ — **N/A per
+   the DECISION above.** The directory starts empty in D1; there is no
+   Firestore export/import to run.
 3. **Apply migrations to production D1** — already done (verified, not reapplied
    here). No action needed unless a new migration file is added later, which
    would then need **prod_migration** approval before `--remote` apply.
-4. **Remove the `firebase` dependency and Firebase project itself** once (1) and
-   (2) ship and soak — **infra_change**/billing approval for deleting the
-   Firebase project; simple `npm uninstall firebase` needs none beyond normal PR
-   review.
+4. **Firebase dependency: done** — `firebase` npm package and `src/lib/firebase.js`
+   were removed in PR #19. **The Firebase project (`blockchainministries-io`) still
+   exists** and is NOT deleted: its data was backed up locally (sensitive, local
+   only) during the 2026-09-24 Firebase exit. Deleting the project is an
+   **infra_change**/billing action and needs separate owner approval.
 5. Stages 1, 3, 5-12 below remain as originally written and require the
    approvals already called out in each (secrets, XRPL mainnet, Stripe live
    keys, the maintenance-window cutover itself).
