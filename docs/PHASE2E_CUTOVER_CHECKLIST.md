@@ -59,9 +59,11 @@ marked not applicable.
 3. **Apply migrations to production D1** — already done (verified, not reapplied
    here). No action needed unless a new migration file is added later, which
    would then need **prod_migration** approval before `--remote` apply.
-4. ~~Remove the `firebase` dependency and Firebase project itself~~ — **N/A**,
-   there is no `firebase` dependency or project tied to this repo's D1 cutover
-   to remove.
+4. **Firebase dependency: done** — `firebase` npm package and `src/lib/firebase.js`
+   were removed in PR #19. **The Firebase project (`blockchainministries-io`) still
+   exists** and is NOT deleted: its data was backed up locally (sensitive, local
+   only) during the 2026-09-24 Firebase exit. Deleting the project is an
+   **infra_change**/billing action and needs separate owner approval.
 5. Stages 1, 3, 5-12 below remain as originally written and require the
    approvals already called out in each (secrets, XRPL mainnet, Stripe live
    keys, the maintenance-window cutover itself).
