@@ -1253,7 +1253,8 @@ export function mount(r) {
   });
 
   /* ---------------------------------------------------------- ministers -- */
-  // Served from D1 only after the Firebase directory is migrated (later phase).
+  // Served from D1. The directory starts empty; entries are added by admins
+  // directly in D1 — there is no Firestore import or migration.
   r.get('/api/ministers', [], async (ctx) => {
     const db = requireDb(ctx);
     return json({ items: await repos(db).ministers.listPublished(v.pagination(ctx.url)) }, { private: false });

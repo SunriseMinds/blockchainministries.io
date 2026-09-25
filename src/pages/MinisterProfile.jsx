@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
+import { api } from '@/lib/cloudflareApi';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { Shield, BookOpen, Star } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import PagePlaceholder from '@/components/PagePlaceholder';
+import { getInitials, mapMinister } from './ministersData';
 
 const MinisterProfile = () => {
   const { ministerId } = useParams();
@@ -16,34 +16,30 @@ const MinisterProfile = () => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const fetchMinister = async () => {
-      try {
-        setLoading(true);
-        const ministerDocRef = doc(db, 'ministers', ministerId);
-        const ministerDoc = await getDoc(ministerDocRef);
+    let cancelled = false;
 
-        if (ministerDoc.exists()) {
-          setMinister({ id: ministerDoc.id, ...ministerDoc.data() });
-        } else {
-          setError('Minister not found in the sacred archives.');
-        }
+    const fetchMinister = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await api.get(`/ministers/${encodeURIComponent(ministerId)}`);
+        if (!cancelled) setMinister(mapMinister(res));
       } catch (err) {
-        console.error("Error fetching minister:", err);
-        setError('An error occurred while seeking the minister.');
+        if (cancelled) return;
+        if (err.status === 404) {
+          setError('Minister not found in the sacred archives.');
+        } else {
+          console.error('Error fetching minister:', err);
+          setError('An error occurred while seeking the minister.');
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchMinister();
+    return () => { cancelled = true; };
   }, [ministerId]);
-
-  const getInitials = (name) => {
-    if (!name) return 'BM';
-    const names = name.split(' ');
-    if (names.length === 1) return names[0].charAt(0).toUpperCase();
-    return `${names[0].charAt(0)}${names[names.length - 1].charAt(0)}`.toUpperCase();
-  };
 
   if (loading) {
     return (
@@ -60,7 +56,7 @@ const MinisterProfile = () => {
   if (!minister) {
     return <PagePlaceholder title="Archive Search Error" description="Minister not found in the sacred archives." />;
   }
-  
+
   return (
     <>
       <Helmet>
@@ -98,44 +94,6 @@ const MinisterProfile = () => {
                   {minister.bio || "No biography provided."}
                 </p>
               </div>
-
-              {minister.specialties && minister.specialties.length > 0 && (
-                 <div>
-                  <h3 className="text-2xl font-semibold text-yellow-300 mb-4 flex items-center">
-                    <Star className="w-6 h-6 mr-3 text-yellow-400" />
-                    Areas of Ministry
-                  </h3>
-                  <div className="flex flex-wrap gap-3">
-                    {minister.specialties.map((specialty, index) => (
-                      <motion.span
-                        key={index}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.5 + index * 0.1 }}
-                        className="bg-yellow-400/10 text-yellow-300 px-4 py-2 rounded-full text-sm border border-yellow-400/30"
-                      >
-                        {specialty}
-                      </motion.span>
-                    ))}
-                  </div>
-                </div>
-              )}
-             
-              {minister.ordinationDate && minister.ordinationDate.seconds && (
-                <div>
-                  <h3 className="text-2xl font-semibold text-yellow-300 mb-3 flex items-center">
-                    <Shield className="w-6 h-6 mr-3 text-yellow-400" />
-                    Ordination Date
-                  </h3>
-                  <p className="text-lg text-gray-300">
-                    {new Date(minister.ordinationDate.seconds * 1000).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </p>
-                </div>
-              )}
             </div>
           </CardContent>
         </Card>

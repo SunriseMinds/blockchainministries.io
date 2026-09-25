@@ -1,45 +1,56 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
+import { api } from '@/lib/cloudflareApi';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { Users } from 'lucide-react';
+import { Users, AlertTriangle } from 'lucide-react';
+import { getInitials, mapMinisters } from './ministersData';
 
 const Ministers = () => {
   const [ministers, setMinisters] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchMinisters = async () => {
+      setLoading(true);
+      setError(false);
       try {
-        const ministersCollection = collection(db, 'ministers');
-        const ministersSnapshot = await getDocs(ministersCollection);
-        const ministersList = ministersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setMinisters(ministersList);
+        // Published-only, D1-backed (see worker/routes/public.js). Not
+        // paginated further here — the directory starts empty and is
+        // expected to stay small, so one call loads the whole published list.
+        const res = await api.get('/ministers');
+        if (!cancelled) setMinisters(mapMinisters(res));
       } catch (err) {
-        console.error("Error fetching ministers:", err);
+        console.error('Error fetching ministers:', err);
+        if (!cancelled) setError(true);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchMinisters();
+    return () => { cancelled = true; };
   }, []);
-
-  const getInitials = (name) => {
-    if (!name) return 'BM';
-    const names = name.split(' ');
-    if (names.length === 1) return names[0].charAt(0).toUpperCase();
-    return `${names[0].charAt(0)}${names[names.length - 1].charAt(0)}`.toUpperCase();
-  };
 
   if (loading) {
     return (
       <div className="bg-gradient-to-br from-blue-900 via-blue-950 to-black text-yellow-400 text-center p-8 min-h-[calc(100vh-200px)] flex items-center justify-center text-2xl font-serif">
         Loading the Ministers' Circle...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-gradient-to-br from-blue-900 via-blue-950 to-black text-yellow-400 text-center p-8 min-h-[calc(100vh-200px)] flex flex-col items-center justify-center gap-4">
+        <AlertTriangle className="h-12 w-12 text-yellow-400" aria-hidden="true" />
+        <p className="text-2xl font-serif">The Ministers' Circle could not be loaded.</p>
+        <p className="text-yellow-200/70">Please try again later.</p>
       </div>
     );
   }
@@ -64,37 +75,41 @@ const Ministers = () => {
             </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {ministers.map((minister, index) => (
-            <motion.div
-              key={minister.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-            >
-              <Link to={`/minister/${minister.id}`}>
-                <Card className="bg-blue-950/30 border-yellow-400/20 text-white shadow-lg hover:shadow-yellow-400/20 hover:border-yellow-400/50 transition-all duration-300 h-full flex flex-col cursor-pointer">
-                  <CardHeader className="flex-row items-center gap-4 p-4">
-                    <Avatar className="w-16 h-16 border-2 border-yellow-400/50">
-                      <AvatarImage src={minister.imageUrl} alt={minister.name} />
-                      <AvatarFallback className="bg-blue-800 text-yellow-300 text-2xl">
-                        {getInitials(minister.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <CardTitle className="text-xl font-serif text-yellow-400">{minister.name || 'Unnamed Minister'}</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="flex-grow p-4 pt-0">
-                    <p className="text-yellow-200/70 italic">
-                      {minister.title || "Servant of the Covenant"}
-                    </p>
-                  </CardContent>
-                </Card>
-              </Link>
-            </motion.div>
-          ))}
-        </div>
+        {ministers.length === 0 ? (
+          <p className="text-center text-yellow-200/70 text-lg">No ministers are published yet. Please check back later.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {ministers.map((minister, index) => (
+              <motion.div
+                key={minister.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+              >
+                <Link to={`/minister/${minister.id}`}>
+                  <Card className="bg-blue-950/30 border-yellow-400/20 text-white shadow-lg hover:shadow-yellow-400/20 hover:border-yellow-400/50 transition-all duration-300 h-full flex flex-col cursor-pointer">
+                    <CardHeader className="flex-row items-center gap-4 p-4">
+                      <Avatar className="w-16 h-16 border-2 border-yellow-400/50">
+                        <AvatarImage src={minister.imageUrl} alt={minister.name} />
+                        <AvatarFallback className="bg-blue-800 text-yellow-300 text-2xl">
+                          {getInitials(minister.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <CardTitle className="text-xl font-serif text-yellow-400">{minister.name || 'Unnamed Minister'}</CardTitle>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="flex-grow p-4 pt-0">
+                      <p className="text-yellow-200/70 italic">
+                        {minister.title || "Servant of the Covenant"}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </Link>
+              </motion.div>
+            ))}
+          </div>
+        )}
       </motion.div>
     </>
   );

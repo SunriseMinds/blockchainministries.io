@@ -1,26 +1,37 @@
 # D1 Migrations
 
 Version-controlled schema for Cloudflare D1 database **`blockchain-ministries-db`**
-(binding `DB`).
+(binding `DB`), with an isolated preview counterpart **`blockchain-ministries-db-preview`**
+(`env.preview`, see `wrangler.jsonc`).
 
-## ⚠️ NOT APPLIED
-No Cloudflare resources have been created and **no migration has been run**. These files are
-reviewable SQL only. Applying them is a Phase 2D action, after the blockers in
-`docs/MIGRATION_RISK_REGISTER.md` are resolved.
+## Status — APPLIED (Phase 2E prep, verified 2026-09-25)
+All 6 migrations below are applied to BOTH the preview D1
+(`blockchain-ministries-db-preview`) and production D1 (`blockchain-ministries-db`) —
+confirmed live via `wrangler d1 migrations list <db> --env preview --remote` /
+`--remote` returning "No migrations to apply!" on both, and via
+`SELECT name FROM sqlite_master WHERE type='table'` returning all 16 application
+tables (plus D1/SQLite internal tables) on both databases. This section previously
+said "NOT APPLIED" — that was stale; corrected during the Phase 2E preview cutover
+prep pass. `docs/MIGRATION_RISK_REGISTER.md`'s open items are tracked separately and
+do not block what has already shipped here.
 
 ## Files
 | File | Contents |
 |---|---|
 | `0001_initial_schema.sql` | All 16 tables, constraints, foreign keys and indexes |
+| `0002_login_tokens.sql` | `login_tokens` table (passwordless login link flow) |
+| `0003_ordination_credentials.sql` | Ordination credential fields |
+| `0004_subscription_event_ordering.sql` | Webhook event-ordering columns on `subscriptions` |
+| `0005_provider_neutral_donations.sql` | `donations`/`donation_intents` rebuilt provider-neutral (Stripe/XRPL) |
+| `0006_provider_neutral_subscriptions.sql` | `subscriptions` rebuilt provider-neutral (Stripe/PayPal) |
 
-## Applying (later, once approved)
+## Applying
 ```bash
-# create the database (Phase 2D)
-wrangler d1 create blockchain-ministries-db
-# add the returned database_id to wrangler.jsonc, then:
-wrangler d1 migrations list  blockchain-ministries-db
-wrangler d1 migrations apply blockchain-ministries-db --local   # local first
-wrangler d1 migrations apply blockchain-ministries-db           # remote
+wrangler d1 migrations list  blockchain-ministries-db-preview --env preview --remote
+wrangler d1 migrations apply blockchain-ministries-db-preview --env preview --remote
+# Production — requires separate explicit owner approval, see
+# docs/PHASE2E_CUTOVER_CHECKLIST.md Stage 2:
+wrangler d1 migrations apply blockchain-ministries-db --remote
 ```
 
 ## Conventions
