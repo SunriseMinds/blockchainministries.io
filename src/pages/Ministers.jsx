@@ -21,8 +21,8 @@ const Ministers = () => {
       setError(false);
       try {
         // Published-only, D1-backed (see worker/routes/public.js). Not
-        // paginated further here — the previous Firestore read also loaded
-        // the whole published directory in one call.
+        // paginated further here — the directory starts empty and is
+        // expected to stay small, so one call loads the whole published list.
         const res = await api.get('/ministers');
         if (!cancelled) setMinisters(mapMinisters(res));
       } catch (err) {
