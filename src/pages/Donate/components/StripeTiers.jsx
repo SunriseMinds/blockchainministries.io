@@ -107,7 +107,17 @@ const StripeTiers = ({ config }) => {
     }
   };
 
-  const anyAvailable = tiers.some((t) => t.available);
+  /**
+   * Post-M14 — a tier needs BOTH a real Stripe Price AND a configured Stripe
+   * account. `tier.available` answers only the first: the catalogue could
+   * carry genuine Price ids while no Stripe credentials exist, which would
+   * activate a button the server refuses. The two conditions stay independent,
+   * as ratified — this just requires both before offering the action.
+   */
+  const stripeReady = config?.stripe?.available === true;
+  const canCheckout = (tier) => stripeReady && tier.available;
+
+  const anyAvailable = tiers.some(canCheckout);
   const paypalConfigured = config?.paypal?.available === true;
   const paypalRecurring = config?.paypal?.recurring_available === true;
 
@@ -153,16 +163,16 @@ const StripeTiers = ({ config }) => {
                 </CardContent>
                 <CardFooter className="flex-col gap-3">
                   <Button
-                    onClick={tier.available ? () => handleCheckout(tier) : undefined}
-                    disabled={!tier.available}
-                    aria-disabled={!tier.available}
+                    onClick={canCheckout(tier) ? () => handleCheckout(tier) : undefined}
+                    disabled={!canCheckout(tier)}
+                    aria-disabled={!canCheckout(tier)}
                     className={
-                      tier.available
+                      canCheckout(tier)
                         ? `min-h-12 w-full py-6 text-lg font-bold text-white ${style.buttonClass}`
                         : 'min-h-12 w-full cursor-not-allowed border border-yellow-400/20 bg-blue-900/40 py-6 text-base font-semibold text-blue-200 hover:bg-blue-900/40'
                     }
                   >
-                    {tier.available ? `Support at $${tier.amount_cents / 100}/month` : 'Coming Soon'}
+                    {canCheckout(tier) ? `Support at $${tier.amount_cents / 100}/month` : 'Coming Soon'}
                   </Button>
                   {/* The PayPal peer. Present whenever PayPal itself is
                       configured, disabled and honest until the tier has a

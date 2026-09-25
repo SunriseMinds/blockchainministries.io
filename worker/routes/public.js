@@ -30,6 +30,7 @@ import {
 } from '../payments/xrplDonations.js';
 import { lookupTransaction } from '@reellink/xrpl/client.js';
 import { paypalConfig, paypalAvailable, requireWebhookId } from '../config/paypal.js';
+import { stripePublicConfig } from '../config/stripe.js';
 import * as paypal from '../payments/paypal.js';
 
 /**
@@ -670,7 +671,12 @@ export function mount(r) {
         recurring_available: TIER_KEYS.some((key) => resolvePayPalTier(key, ctx.env) !== null),
       };
     }
-    return json({ ...cfg, xrp, paypal: paypalCfg });
+    // Post-M14 — Stripe gets the same authoritative, server-derived flag the
+    // other two rails already had. `one_time.available` describes the
+    // CATALOGUE (one-off giving needs no pre-created Price); `stripe.available`
+    // describes the PROVIDER. The browser must consult the second before
+    // offering checkout — see worker/config/stripe.js.
+    return json({ ...cfg, stripe: stripePublicConfig(ctx.env), xrp, paypal: paypalCfg });
   });
 
   /**
