@@ -6,6 +6,63 @@
 > no-migration decision (legacy Supabase rows were test data only) instead of
 > running this stage. Kept for historical record of the original cutover plan.
 
+## Preview-only prep pass — 2026-09-25 (mission bm-firestore-d1-cutover, RCC job
+## 01a0d69c) — DONE
+Scope was explicitly preview/local only; no production D1, secret, or Cloudflare
+dashboard changes were made or needed.
+- [x] Reconciled `migrations/0001..0006` against the docs. Finding: the docs were
+      stale, not the schema — `migrations/README.md` still said "NOT APPLIED" and
+      listed only `0001`; `SUPABASE_TO_D1_SCHEMA_MAP.md` was the pre-implementation
+      proposal. Both updated in place to point at the applied migrations as the
+      source of truth (see those files' new status banners). No SQL changed.
+- [x] `npm test` — 537/537 pass. `npm run build` — succeeds (Vite build, no errors).
+- [x] Verified (read-only `wrangler d1 migrations list ... --remote`, no `--apply`)
+      that all 6 migrations are already applied to BOTH
+      `blockchain-ministries-db-preview` (`--env preview --remote`) and
+      `blockchain-ministries-db` (`--remote`, read-only status check only, no write
+      issued against production). Both report "No migrations to apply!". Confirmed
+      all 16 application tables exist on the preview DB via
+      `SELECT name FROM sqlite_master WHERE type='table'`: `users`, `sessions`,
+      `email_verification_tokens`, `password_reset_tokens`, `login_tokens`,
+      `memberships`, `ordinations`, `scrolls`, `scroll_requests`, `donations`,
+      `donation_intents`, `subscriptions`, `contact_inquiries`, `consultations`,
+      `ministers`, `audit_logs`.
+- [x] Data import/validation dry-run: **N/A, nothing to run.** `scripts/export-supabase.mjs`
+      / `scripts/import-d1.mjs` / `scripts/validate-migration.mjs` referenced by
+      Stage 4 below don't exist — confirmed deliberately per this doc's own header
+      (no-migration decision, M10.4). The Firestore→D1 `ministers` migration
+      (`docs/FIREBASE_INVENTORY.md` "Future migration" section) has no export
+      script either; it was explicitly marked "NOT part of Phase 2" and the
+      frontend (`src/pages/Ministers.jsx`, `MinisterProfile.jsx`) still reads
+      Firestore directly even though the D1 `ministers` table and
+      `GET /api/ministers[/:id]` Worker routes already exist and are schema-ready.
+      That repoint is real, scoped, low-risk frontend work but is a separate
+      feature change outside this prep pass's checklist items — flagged as the
+      concrete next task, not done here.
+
+### Remaining production steps (none performed here; each needs the listed approval)
+1. **Repoint `Ministers.jsx`/`MinisterProfile.jsx` at `/api/ministers`, drop the
+   `firebase` npm dependency and `src/lib/firebase.js`.** Preview/local code change,
+   no special approval beyond normal PR review — but out of this job's scope; do
+   as its own PR.
+2. **Populate the `ministers` D1 table from live Firestore data** (owner must
+   export via Firebase Admin SDK or console first — no read access to Firestore
+   from this environment). Needs owner-provided export; then a straightforward
+   `INSERT` against preview, validated, then production. Production write =
+   **prod_migration** approval.
+3. **Apply migrations to production D1** — already done (verified, not reapplied
+   here). No action needed unless a new migration file is added later, which
+   would then need **prod_migration** approval before `--remote` apply.
+4. **Remove the `firebase` dependency and Firebase project itself** once (1) and
+   (2) ship and soak — **infra_change**/billing approval for deleting the
+   Firebase project; simple `npm uninstall firebase` needs none beyond normal PR
+   review.
+5. Stages 1, 3, 5-12 below remain as originally written and require the
+   approvals already called out in each (secrets, XRPL mainnet, Stripe live
+   keys, the maintenance-window cutover itself).
+
+---
+
 **Do not begin until every Gate A item is answered.** Each stage is reversible; the flag
 flip is the primary rollback lever (`docs/ROLLBACK_PLAN.md`).
 
