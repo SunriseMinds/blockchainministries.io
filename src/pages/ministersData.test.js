@@ -5,7 +5,32 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getInitials, mapMinister, mapMinisters } from './ministersData.js';
+import { getInitials, mapMinister, mapMinisters, photoUrl } from './ministersData.js';
+
+test('photoUrl: maps a photo_key to the public files route, encoding each segment', () => {
+  assert.equal(photoUrl('ministers/m1.jpg'), '/api/files/public/ministers/m1.jpg');
+});
+
+test('photoUrl: encodes unsafe characters within a segment without escaping slashes', () => {
+  assert.equal(photoUrl('ministers/m 1.jpg'), '/api/files/public/ministers/m%201.jpg');
+});
+
+test('photoUrl: missing, empty, or non-string keys map to undefined', () => {
+  assert.equal(photoUrl(undefined), undefined);
+  assert.equal(photoUrl(null), undefined);
+  assert.equal(photoUrl(''), undefined);
+  assert.equal(photoUrl(42), undefined);
+});
+
+test('photoUrl: a leading slash is rejected', () => {
+  assert.equal(photoUrl('/ministers/m1.jpg'), undefined);
+});
+
+test('photoUrl: a ".." segment is rejected', () => {
+  assert.equal(photoUrl('ministers/../secret.jpg'), undefined);
+  assert.equal(photoUrl('../ministers/m1.jpg'), undefined);
+});
+
 
 test('getInitials: two-word name uses first+last initial', () => {
   assert.equal(getInitials('Jordan Rivers'), 'JR');
@@ -25,15 +50,20 @@ test('getInitials: empty/missing name falls back to BM', () => {
   assert.equal(getInitials(undefined), 'BM');
 });
 
-test('mapMinister: maps the D1 row shape onto the view model', () => {
+test('mapMinister: maps the D1 row shape onto the view model, including the derived photo URL', () => {
   const row = { id: 'm1', display_name: 'Jordan Rivers', title: 'Elder', bio: 'A bio.', photo_key: 'ministers/m1.jpg' };
   assert.deepEqual(mapMinister(row), {
     id: 'm1',
     name: 'Jordan Rivers',
     title: 'Elder',
     bio: 'A bio.',
-    imageUrl: undefined,
+    imageUrl: '/api/files/public/ministers/m1.jpg',
   });
+});
+
+test('mapMinister: an unsafe photo_key maps imageUrl to undefined', () => {
+  const row = { id: 'm1', display_name: 'Jordan Rivers', title: 'Elder', bio: 'A bio.', photo_key: '../secret.jpg' };
+  assert.equal(mapMinister(row).imageUrl, undefined);
 });
 
 test('mapMinister: missing optional fields fall back to empty strings, not undefined/null text', () => {

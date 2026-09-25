@@ -3,11 +3,28 @@
  * `/api/ministers` shape (`id, display_name, title, bio, photo_key`) and the
  * view model the pages render.
  *
- * There is deliberately no image URL derived from `photo_key` here: no route
- * serves minister photos from R2 yet (see docs/R2_FILE_MIGRATION_PLAN.md,
- * still DESIGN status), so `imageUrl` stays undefined and the avatar falls
+ * `photo_key` is an R2 key in the `bm-public` bucket, following the
+ * `ministers/<id>.<ext>` convention (see docs/R2_FILE_MIGRATION_PLAN.md) and
+ * served publicly by the Worker route `GET /api/files/public/:key+`
+ * (worker/routes/files.js). `imageUrl` is derived from it when `photo_key` is
+ * a non-empty, safe key; otherwise it stays undefined and the avatar falls
  * back to initials, same as it already does for a minister with no photo.
  */
+
+/**
+ * Builds the public file-serving URL for an R2 key, or `undefined` when the
+ * key is missing or unsafe. Slashes are kept as path separators (each
+ * segment is encoded on its own) so nested keys like `ministers/m1.jpg`
+ * still round-trip through the Worker's `:key+` catch-all route. Keys with a
+ * leading `/` or a `..` segment are rejected rather than encoded.
+ */
+export function photoUrl(key) {
+  if (typeof key !== 'string' || key.length === 0) return undefined;
+  if (key.startsWith('/')) return undefined;
+  const segments = key.split('/');
+  if (segments.some((segment) => segment === '..')) return undefined;
+  return `/api/files/public/${segments.map(encodeURIComponent).join('/')}`;
+}
 
 /** `"Jordan Rivers"` -> `"JR"`; a single name -> its first initial; empty -> `"BM"`. */
 export function getInitials(name) {
@@ -29,8 +46,7 @@ export function mapMinister(row) {
     name: row.display_name || '',
     title: row.title || '',
     bio: row.bio || '',
-    // No photo-serving route exists yet — see module comment.
-    imageUrl: undefined,
+    imageUrl: photoUrl(row.photo_key),
   };
 }
 
