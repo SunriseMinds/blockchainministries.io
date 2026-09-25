@@ -26,10 +26,18 @@ test('resolveTarget rejects an unknown target', () => {
   assert.throws(() => resolveTarget(['--target=staging']), /Invalid --target/);
 });
 
-test('d1ExecuteArgs maps target -> wrangler flag', () => {
+test('d1ExecuteArgs maps target -> wrangler flag (wrangler 4.x defaults to LOCAL, so preview/production need --remote)', () => {
   assert.deepEqual(d1ExecuteArgs('local'), ['--local']);
-  assert.deepEqual(d1ExecuteArgs('preview'), ['--preview']);
+  assert.deepEqual(d1ExecuteArgs('preview'), ['--remote', '--preview']);
   assert.deepEqual(d1ExecuteArgs('production'), ['--remote']);
+});
+
+test('--remote WITHOUT --preview is only ever produced for production', () => {
+  for (const target of ['local', 'preview', 'production']) {
+    const args = d1ExecuteArgs(target);
+    const bareRemote = args.includes('--remote') && !args.includes('--preview');
+    assert.equal(bareRemote, target === 'production', `unexpected bare --remote for target=${target}`);
+  }
 });
 
 test('production guard refuses without --i-have-approval', () => {

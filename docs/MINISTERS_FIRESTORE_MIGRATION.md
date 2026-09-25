@@ -123,50 +123,77 @@ up unchanged.
 ### 7. Rollback
 
 ```
-node scripts/rollback-d1.mjs --target=<local|preview|production>          # dry run first
-node scripts/rollback-d1.mjs --target=<local|preview|production> --apply
+node scripts/rollback-d1.mjs --target=local                                        # dry run
+node scripts/rollback-d1.mjs --target=local --apply
+node scripts/rollback-d1.mjs --target=preview                                      # dry run
+node scripts/rollback-d1.mjs --target=preview --apply
+node scripts/rollback-d1.mjs --target=production --i-have-approval=<RCC approval id>   # dry run
+node scripts/rollback-d1.mjs --target=production --i-have-approval=<RCC approval id> --apply
 ```
-This is the existing, unedited `scripts/rollback-d1.mjs` — import-ministers.mjs
-writes its journal lines as exactly `{status:"ok", table:"ministers", id}`
-so rollback reads it with no changes.
+Deletes ONLY the ids `import-ministers.mjs` journaled as written for that
+target (`.migration/import-<target>.jsonl`), in reverse dependency order.
+Rows created by real users after the import are never touched, because they
+are not in the journal. `--target` defaults to `preview` if omitted — always
+pass it explicitly. `--target=production` requires
+`--i-have-approval=<RCC approval id>`, enforced in code, matching the
+importer's guard.
 
-**Known limitation, verified during this build, not fixed here (out of
-scope: `scripts/rollback-d1.mjs` is frozen for this lane):** the installed
-wrangler version (4.114.0, per `package-lock.json`) has no `--param` flag on
-`d1 execute` at all (`wrangler d1 execute --help` lists none). `rollback-d1.mjs`
-and the pre-existing `migrate-files-r2.mjs` both call `d1 execute ... --param`,
-so `rollback-d1.mjs --target=local --apply` prints `X [ERROR] Unknown
-argument: param` for every table and does NOT actually delete rows (verified
-live against a local D1: rows survived a rollback --apply attempt). Its
-dry-run mode works everywhere, including `--target=local`, because it never
-shells out to wrangler. `import-ministers.mjs` (this lane, in scope) works
-around the same wrangler behavior by inlining escaped SQL literals instead
-of `--param` (see `sqlLiteral`/`inlineParams` in `import-ministers.mjs`) —
-verified end-to-end against a local D1. Fixing `rollback-d1.mjs` itself
-needs the owning lane; flagged in `result.json`'s `handoff`.
+**Fixed in this pass (previously broken — see git history for the earlier,
+broken version):**
+- `rollback-d1.mjs` used wrangler's `--param` flag, which the pinned wrangler
+  version (4.114.0) does not support at all (`d1 execute --help` lists no
+  `--param`). `--apply` therefore printed `Unknown argument: param` for every
+  table and deleted nothing, while dry-run looked fine because it never
+  shelled out. Fixed by reusing `sqlLiteral`/`inlineParams`
+  (`scripts/lib/migrate-common.mjs`) to inline escaped SQL literals instead —
+  the same approach `import-ministers.mjs` already used. Ids here come only
+  from this tooling's own journal, never end-user input.
+- `rollback-d1.mjs` had no `local` target and mapped every non-production
+  target (including a would-be `local`) to wrangler's bare `--preview` flag.
+  wrangler 4.x's `d1 execute` defaults to LOCAL, so bare `--preview` (no
+  `--remote`) wrote to the local preview sqlite regardless of the intended
+  target. Both scripts now share `d1TargetArgs()` in
+  `scripts/lib/migrate-common.mjs`:
+  - `local` -> `--local`
+  - `preview` -> `--remote --preview` (the remote preview DB, id
+    `88e30d07-1939-495a-8cf4-3088a2e8ef81`, `wrangler.jsonc`'s
+    `preview_database_id`)
+  - `production` -> `--remote` (bare `--remote` is produced only for
+    `production`, never for `preview`)
 
-Also note: `rollback-d1.mjs` maps every non-production target (including
-`local`) to wrangler's `--preview` flag, not `--local` — another reason its
-`--apply` path needs the owning lane's attention before it can be trusted
-against a local DB.
+Verified end-to-end against a **local** D1 (see the run log below): import
+3 fixture rows with `--target=local --apply`, SELECT confirms 3 rows,
+`rollback-d1.mjs --target=local --apply` succeeds (no `Unknown argument:
+param` error), SELECT afterward confirms 0 rows.
 
 ## Verification run performed for this build
 
-- `node --test scripts/firestore/*.test.js` — 40/40 pass (transform mapping
+- `node --test "scripts/firestore/**/*.test.js"` — 54/54 pass: transform mapping
   and edge cases, REST pagination against a mocked `fetch`, the journal
   format cross-checked against `rollback-d1.mjs`'s own parsing rule, the
-  production approval guard, SQL literal escaping).
-- `npm test` — 537/537 pass (unaffected; scripts/firestore is not in this
-  glob, by design — see `handoff` in `result.json`).
+  production approval guard (import and rollback), the `d1TargetArgs`/
+  `d1ExecuteArgs` mapping for all three targets plus the "`--remote` without
+  `--preview` only for production" invariant, SQL literal escaping, and the
+  rollback chunked-DELETE builder (escaping, 50-row chunking, empty input).
+- `npm test` — 591/591 pass, including `scripts/firestore/**/*.test.js`
+  (added to the `npm test` glob in `package.json`).
 - `npm run lint` — the same 25 pre-existing shadcn `import/no-unresolved`
   errors, zero new ones (`.mjs` files aren't matched by `eslint.config.mjs`'s
   `**/*.js`/`**/*.jsx` globs).
-- End-to-end against a **local** D1 only: applied all 6 migrations with
-  `--local`, ran export (`--from-file`, offline) -> transform -> import
-  (`--target=local --apply`) against a 3-document fixture
-  (`.migration/fixtures/ministers-export-fixture.json`, covers: full
-  document, `hidden` doc, and an empty/fallback doc), queried the rows back,
-  and exercised `rollback-d1.mjs --target=local` (dry-run: correct; apply:
-  fails as documented above, rows unaffected).
+- End-to-end against a **local** D1 only:
+  - `npx wrangler d1 migrations apply blockchain-ministries-db --local` (all
+    6 migrations already applied; confirmed idempotent).
+  - export (`--from-file`, offline) -> transform -> import
+    (`--target=local --apply`) against the 3-document fixture
+    (`.migration/fixtures/ministers-export-fixture.json`: full document,
+    `hidden` doc, empty/fallback doc) -> 3 rows inserted.
+  - `SELECT id, display_name, is_published FROM ministers` confirmed the 3
+    rows (`min-001` published, `min-002` unpublished/hidden, `min-003`
+    fallback name, all present).
+  - `node scripts/rollback-d1.mjs --target=local --apply` succeeded (no
+    `--param` error); journal archived.
+  - `SELECT COUNT(*) FROM ministers` afterward returned `0`.
 - No Firestore access of any kind was performed. No preview or production
-  writes were performed.
+  reads or writes were performed (this lane has no remote D1 access at all,
+  by policy — the preview/production flag mapping above is verified by unit
+  test against wrangler's documented `d1 execute` flags, not by a live run).

@@ -15,63 +15,28 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { parseArgs, banner, Journal, buildInsert, writeReport, STATE_DIR } from '../lib/migrate-common.mjs';
+import {
+  parseArgs, banner, Journal, buildInsert, writeReport, STATE_DIR,
+  sqlLiteral, inlineParams, d1TargetArgs, resolveD1Target, checkD1ProductionGuard,
+} from '../lib/migrate-common.mjs';
 
 const DB_NAME = 'blockchain-ministries-db';
-const VALID_TARGETS = new Set(['local', 'preview', 'production']);
 
 export function resolveTarget(argv = process.argv.slice(2)) {
-  const raw = (argv.find((a) => a.startsWith('--target=')) || '--target=local').split('=')[1];
-  if (!VALID_TARGETS.has(raw)) {
-    throw new Error(`Invalid --target=${raw}. Must be one of: ${[...VALID_TARGETS].join(', ')}`);
-  }
-  return raw;
+  return resolveD1Target(argv, 'local');
 }
 
-/**
- * Production requires an explicit RCC approval id, and only production.
- * Returns null when the guard passes, else an error message.
- */
 export function checkProductionGuard(target, argv = process.argv.slice(2)) {
-  if (target !== 'production') return null;
-  const approval = (argv.find((a) => a.startsWith('--i-have-approval=')) || '').split('=')[1];
-  if (!approval) {
-    return '--target=production requires --i-have-approval=<RCC approval id>. Refusing to run.';
-  }
-  return null;
+  return checkD1ProductionGuard(target, argv);
 }
 
-/** wrangler d1 execute args for one target, matching rollback-d1.mjs's flag choice. */
+/** wrangler d1 execute args for one target. See migrate-common.mjs#d1TargetArgs. */
 export function d1ExecuteArgs(target) {
-  if (target === 'local') return ['--local'];
-  if (target === 'production') return ['--remote'];
-  return ['--preview'];
+  return d1TargetArgs(target);
 }
 
-/**
- * Render one `?`-placeholder value as a SQL literal.
- *
- * The wrangler version pinned in this repo's package-lock (checked: 4.114.0)
- * has NO `--param` flag on `d1 execute` (`wrangler d1 execute --help` lists
- * only --command/--file/--local/--remote/--preview/--json) even though
- * rollback-d1.mjs and migrate-files-r2.mjs already call it with `--param`
- * (that pre-existing code is out of scope here and untouched). Rows here
- * come only from our own transform step, never from end-user input, so a
- * single-quote-doubling literal is an acceptable inlining, not a new
- * injection surface — but it is why this importer does NOT reuse
- * rollback-d1.mjs's `--param` pattern.
- */
-export function sqlLiteral(value) {
-  if (value === null || value === undefined) return 'NULL';
-  if (typeof value === 'number') return String(value);
-  return `'${String(value).replace(/'/g, "''")}'`;
-}
-
-/** Substitute `?` placeholders in order with escaped SQL literals. */
-export function inlineParams(sql, params) {
-  let i = 0;
-  return sql.replace(/\?/g, () => sqlLiteral(params[i++]));
-}
+// Re-exported for callers/tests that import these from this module.
+export { sqlLiteral, inlineParams };
 
 function d1Insert(target, sql, params) {
   const inlined = inlineParams(sql, params);

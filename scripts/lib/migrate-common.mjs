@@ -112,6 +112,70 @@ export function buildInsert(table, row, { ignoreDuplicates = true } = {}) {
   return { sql, params: cols.map((c) => serialize(row[c])) };
 }
 
+/**
+ * Render one `?`-placeholder value as a SQL literal.
+ *
+ * The wrangler version pinned in this repo's package-lock (checked: 4.114.0)
+ * has NO `--param` flag on `d1 execute` (`wrangler d1 execute --help` lists
+ * only --command/--file/--local/--remote/--preview/--json). Rows/ids here
+ * come only from our own transform step or from ids this same tooling
+ * already wrote (rollback), never from end-user input, so a
+ * single-quote-doubling literal is an acceptable inlining, not a new
+ * injection surface.
+ */
+export function sqlLiteral(value) {
+  if (value === null || value === undefined) return 'NULL';
+  if (typeof value === 'number') return String(value);
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/** Substitute `?` placeholders in order with escaped SQL literals. */
+export function inlineParams(sql, params) {
+  let i = 0;
+  return sql.replace(/\?/g, () => sqlLiteral(params[i++]));
+}
+
+/**
+ * wrangler `d1 execute` args for one target. wrangler 4.x's `d1 execute`
+ * defaults to LOCAL: `--preview` alone (no `--remote`) still writes to the
+ * local preview sqlite, not the remote preview database. Local, preview and
+ * production must therefore each pass a distinct flag set:
+ *   local      -> ['--local']
+ *   preview    -> ['--remote', '--preview']   (remote preview DB)
+ *   production -> ['--remote']                (remote production DB)
+ * `--remote` WITHOUT `--preview` must only ever be produced for `production`.
+ */
+export function d1TargetArgs(target) {
+  if (target === 'local') return ['--local'];
+  if (target === 'production') return ['--remote'];
+  if (target === 'preview') return ['--remote', '--preview'];
+  throw new Error(`Unknown D1 target: ${target}`);
+}
+
+export const VALID_D1_TARGETS = new Set(['local', 'preview', 'production']);
+
+/** Parse --target=local|preview|production, defaulting to `defaultTarget`. */
+export function resolveD1Target(argv = process.argv.slice(2), defaultTarget = 'local') {
+  const raw = (argv.find((a) => a.startsWith('--target=')) || `--target=${defaultTarget}`).split('=')[1];
+  if (!VALID_D1_TARGETS.has(raw)) {
+    throw new Error(`Invalid --target=${raw}. Must be one of: ${[...VALID_D1_TARGETS].join(', ')}`);
+  }
+  return raw;
+}
+
+/**
+ * Production requires an explicit RCC approval id, and only production.
+ * Returns null when the guard passes, else an error message.
+ */
+export function checkD1ProductionGuard(target, argv = process.argv.slice(2)) {
+  if (target !== 'production') return null;
+  const approval = (argv.find((a) => a.startsWith('--i-have-approval=')) || '').split('=')[1];
+  if (!approval) {
+    return '--target=production requires --i-have-approval=<RCC approval id>. Refusing to run.';
+  }
+  return null;
+}
+
 /* ------------------------------------------------------------------- io -- */
 export function writeReport(name, data, dir = STATE_DIR) {
   fs.mkdirSync(dir, { recursive: true });
