@@ -1,10 +1,18 @@
 # Supabase → D1 Schema Map — Blockchain Ministries
 
-> **Status: DESIGN / PROPOSAL.** Column lists are **inferred from frontend usage**
-> in `src/` (the Hostinger export does not include the database DDL). Before any
-> migration, dump the authoritative schema from the live Supabase project
-> (`supabase db dump` / SQL editor) and reconcile it against this map. No SQL has
-> been executed.
+> **Status: HISTORICAL DESIGN NOTE — superseded by the applied schema.** This map
+> was written before any SQL existed, as a proposal inferred from frontend usage.
+> `migrations/0001_initial_schema.sql` through `0006_provider_neutral_subscriptions.sql`
+> are the actual schema now (verified applied, see `migrations/README.md`) and
+> diverge from this doc in several material ways decided during implementation:
+> `profiles` was merged into a single `users` table (no separate Supabase-style
+> identity split); `memberships.status` was split into independent
+> `application_status`/`payment_status` columns instead of one overloaded field;
+> `donations`/`donation_intents` and `subscriptions` were rebuilt provider-neutral
+> (Stripe + XRPL / Stripe + PayPal) rather than Stripe-only as shown below. Treat
+> `migrations/*.sql` as authoritative for column names and types; this file is kept
+> only for the original reasoning trail. No further Supabase migration is planned —
+> Supabase was retired at M10.4 (see `docs/PHASE2E_CUTOVER_CHECKLIST.md`).
 
 ## Legend
 - **PK** primary key · **FK** foreign key · **RLS** row-level security
